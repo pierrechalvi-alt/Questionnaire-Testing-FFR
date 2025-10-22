@@ -934,4 +934,104 @@ resultMessage.textContent = "✅ Merci ! Vos réponses sont prêtes à être env
 window.scrollTo({ top: 0, behavior: "smooth" });
 });
 
+});// ======================================================
+// 🔗 ENVOI AUTOMATIQUE VERS GOOGLE FORM
+// ======================================================
+
+// --- Étape 1 : Fonction pour collecter toutes les réponses du formulaire ---
+function collectFormData() {
+const data = {};
+const form = document.getElementById("questionnaireForm");
+
+// 1️⃣ Informations générales
+data.role = form.querySelector("input[name='role']:checked")?.value || "";
+data.equipe = form.querySelector("input[name='structure']:checked")?.value || "";
+
+// 2️⃣ Zones sélectionnées
+data.zones = [...document.querySelectorAll("#zones input:checked")].map(z => z.value);
+
+// 3️⃣ Détails par zone (sous-sections)
+data.details = {};
+document.querySelectorAll("#zoneQuestions .subcard").forEach(sec => {
+const zone = sec.querySelector("h3")?.textContent?.trim();
+if (!zone) return;
+const answers = [];
+sec.querySelectorAll("input:checked").forEach(chk => {
+answers.push(chk.parentElement.textContent.trim());
+});
+// champs "autre" précisés
+sec.querySelectorAll(".other-input").forEach(inp => {
+if (inp.value.trim()) answers.push("Autre : " + inp.value.trim());
+});
+if (answers.length) data.details[zone] = answers;
+});
+
+// 4️⃣ Sections globales (sauts et course)
+["global-jumps", "global-course"].forEach(id => {
+const sec = document.getElementById(id);
+if (!sec || !sec.dataset.ready) return;
+const title = sec.querySelector("h3")?.textContent?.trim();
+if (!title) return;
+const answers = [];
+sec.querySelectorAll("input:checked").forEach(chk => {
+answers.push(chk.parentElement.textContent.trim());
+});
+sec.querySelectorAll(".other-input").forEach(inp => {
+if (inp.value.trim()) answers.push("Autre : " + inp.value.trim());
+});
+if (answers.length) data.details[title] = answers;
+});
+
+// 5️⃣ Questions communes (barrières, raisons)
+const commons = {};
+["barrieres", "raisons"].forEach(name => {
+commons[name] = [...form.querySelectorAll(`input[name='${name}']:checked`)].map(c => c.value);
+});
+data.questions_communes = commons;
+
+// 6️⃣ Horodatage
+data.timestamp_local = new Date().toLocaleString("fr-FR");
+
+return data;
+}
+
+// --- Étape 2 : Fonction d’envoi HTTP vers ton Google Form ---
+function submitToGoogleForm(data) {
+// ✅ RENSEIGNÉ AVEC TES INFORMATIONS PERSONNELLES
+const googleFormURL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSeNok3wNrafUFIM2VnAo4NKQpdZDaDyFDeVS8dZbXFyt_ySyA/formResponse";
+const entryID = "entry.1237244370";
+
+// Prépare la charge utile : tout le questionnaire dans une seule réponse JSON
+const payload = {};
+payload[entryID] = JSON.stringify(data);
+
+// Envoi en POST
+fetch(googleFormURL, {
+method: "POST",
+mode: "no-cors",
+headers: { "Content-Type": "application/x-www-form-urlencoded" },
+body: new URLSearchParams(payload).toString()
+})
+.then(() => {
+const resultMessage = document.getElementById("resultMessage");
+resultMessage.style.color = "#0074d9";
+resultMessage.textContent = "✅ Réponses transmises à Google Form avec succès. Merci !";
+window.scrollTo({ top: 0, behavior: "smooth" });
+})
+.catch(err => {
+const resultMessage = document.getElementById("resultMessage");
+resultMessage.style.color = "red";
+resultMessage.textContent = "⚠️ Échec de l’envoi au Google Form.";
+console.error("Erreur d’envoi :", err);
+});
+}
+
+// --- Étape 3 : Brancher l’envoi automatique après validation ---
+submitBtn.addEventListener("click", (e) => {
+e.preventDefault();
+// la validation principale a déjà lieu dans ton script plus haut
+if (resultMessage.textContent.startsWith("✅ Merci")) {
+const formData = collectFormData();
+submitToGoogleForm(formData);
+}
 });
