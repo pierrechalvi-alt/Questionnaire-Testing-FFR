@@ -1,38 +1,20 @@
 // ------------------------------
-// script.js – Version avancée (v4)
+// script.js – v5 (logique clinique avancée)
 // ------------------------------
 document.addEventListener("DOMContentLoaded", () => {
-
-// --- Sélecteurs principaux
+// ===== Sélecteurs globaux
 const zonesCheckboxes = document.querySelectorAll("#zones input[type='checkbox']");
 const zoneQuestionsContainer = document.getElementById("zoneQuestions");
 const submitBtn = document.getElementById("submitBtn");
 const resultMessage = document.getElementById("resultMessage");
 
-// --- Groupes de zones
-const lowerBodyZones = ["Hanche", "Genou", "Cheville / Pied"];
-const upperBodyZones = ["Épaule", "Coude", "Poignet / Main"];
-const headNeck = "Tête / Rachis cervical";
-
-// --- Sections globales (affichées une seule fois si besoin)
-const globalLower = document.getElementById("global-lower"); // Tests fonctionnels globaux MI
-const globalUpper = document.getElementById("global-upper"); // Tests fonctionnels globaux MS
-const globalJumps = document.getElementById("global-jumps"); // Sauts (unique)
-
-// Course globale (unique)
-const globalCourse = document.createElement("div");
-globalCourse.id = "global-course";
-globalCourse.className = "subcard";
-globalCourse.style.display = "none";
-globalCourse.dataset.ready = "";
-zoneQuestionsContainer.parentElement.appendChild(globalCourse);
-
-// --- Progress bar
+// Barre de progression
 const progressBar = document.getElementById("progress-bar");
 const progressText = document.getElementById("progress-text");
 const formSections = document.querySelectorAll(".card");
+
 function updateProgress() {
-const filled = [...formSections].filter(sec => sec.querySelector("input:checked")).length;
+const filled = [...formSections].filter(sec => sec.querySelector("input:checked") || sec.querySelector("input[type='text']:not(.other-input)[value]")).length;
 const total = formSections.length;
 const percent = Math.min(100, Math.round((filled / total) * 100));
 progressBar.style.width = percent + "%";
@@ -40,11 +22,26 @@ progressText.textContent = `Progression : ${percent}%`;
 }
 document.addEventListener("change", updateProgress);
 
-// ---------------------------------------------------------
-// Données / Dictionnaires
-// ---------------------------------------------------------
+// ===== Groupes de zones
+const lowerBodyZones = ["Hanche", "Genou", "Cheville / Pied"];
+const upperBodyZones = ["Épaule", "Coude", "Poignet / Main"];
+const headNeckPair = ["Tête", "Rachis cervical"];
+const headNeckTitle = "Tête / Rachis cervical";
 
-// Outils génériques
+// ===== Blocs globaux uniques (créés à la volée)
+const globalJumps = document.createElement("div"); // Sauts (unique si MI cochée)
+globalJumps.id = "global-jumps";
+globalJumps.className = "subcard";
+globalJumps.style.display = "none";
+zoneQuestionsContainer.parentElement.appendChild(globalJumps);
+
+const globalCourse = document.createElement("div"); // Course (unique si MI cochée OU tête/rachis)
+globalCourse.id = "global-course";
+globalCourse.className = "subcard";
+globalCourse.style.display = "none";
+zoneQuestionsContainer.parentElement.appendChild(globalCourse);
+
+// ===== Données (listes)
 const toolsForceGeneric = [
 "Dynamomètre manuel",
 "Dynamomètre fixe",
@@ -59,8 +56,6 @@ const toolsMobilityGeneric = [
 "Test spécifique",
 "Autre"
 ];
-
-// Paramètres (force)
 const paramsForce = [
 "Force max",
 "Force moyenne",
@@ -69,13 +64,11 @@ const paramsForce = [
 "Angle du pic de force",
 "Endurance"
 ];
-// Critères communs force
 const criteriaForce = [
 "Ratio agoniste/antagoniste",
 "Ratio droite/gauche",
 "Valeur seuil"
 ];
-// Critères mobilité (lombaire: pas droite/gauche)
 const criteriaMobilityGeneric = [
 "Comparaison droite/gauche",
 "Valeur seuil"
@@ -84,6 +77,8 @@ const criteriaMobilityLumbar = [
 "Moyenne du groupe",
 "Valeur seuil"
 ];
+const isokineticSpeeds = ["30°/s", "60°/s", "120°/s", "180°/s", "Autre (précisez)"];
+const isokineticModes = ["Concentrique", "Excentrique", "Isométrique", "Combiné"];
 
 // Proprio par zone
 const proprioByZone = {
@@ -91,72 +86,59 @@ const proprioByZone = {
 "Genou": ["Y-Balance Test", "Star Excursion", "FMS (Lower)"],
 "Hanche": ["Y-Balance Test", "Star Excursion", "FMS (Lower)"],
 "Épaule": ["Y-Balance Test (épaule)", "FMS (Upper)"],
-"Tête / Rachis cervical": ["Test proprio cervical (laser)"],
+[headNeckTitle]: ["Test proprio cervical (laser)"],
 "Poignet / Main": [],
 "Coude": [],
 "Rachis lombaire": ["FMS (Core)"]
 };
 
-// Questionnaires par zone (liste élargie / “exhaustive” utile en pratique)
+// Questionnaires par zone (élargis)
 const questionnairesByZone = {
-"Genou": [
-"KOOS", "IKDC", "Lysholm", "Tegner", "ACL-RSI", "KOS-ADLS", "LEFS"
-],
-"Hanche": [
-"HAGOS", "iHOT-12", "HOOS", "Hip Outcome Score (HOS)"
-],
-"Épaule": [
-"QuickDASH", "DASH", "SIRSI", "ASES", "SPADI", "Oxford Shoulder Score"
-],
-"Coude": [
-"Oxford Elbow Score", "Mayo Elbow Performance Score (MEPS)", "DASH", "QuickDASH"
-],
-"Poignet / Main": [
-"PRWE", "DASH", "QuickDASH", "Boston Carpal Tunnel Questionnaire"
-],
-"Cheville / Pied": [
-"CAIT", "FAAM-ADL", "FAAM-Sport", "FAOS"
-],
-"Rachis lombaire": [
-"ODI (Oswestry)", "Roland-Morris", "Quebec Back Pain", "FABQ"
-],
-"Tête / Rachis cervical": [
-"SCAT6", "Neck Disability Index (NDI)", "Copenhagen Neck Functional Scale"
-]
+"Genou": ["KOOS", "IKDC", "Lysholm", "Tegner", "ACL-RSI", "KOS-ADLS", "LEFS", "Autre"],
+"Hanche": ["HAGOS", "iHOT-12", "HOOS", "HOS", "Autre"],
+"Épaule": ["QuickDASH", "DASH", "SIRSI", "ASES", "SPADI", "Oxford Shoulder Score", "Autre"],
+"Coude": ["Oxford Elbow Score", "MEPS", "DASH", "QuickDASH", "Autre"],
+"Poignet / Main": ["PRWE", "DASH", "QuickDASH", "Boston Carpal Tunnel", "Autre"],
+"Cheville / Pied": ["CAIT", "FAAM-ADL", "FAAM-Sport", "FAOS", "FFI", "Autre"],
+"Rachis lombaire": ["ODI (Oswestry)", "Roland-Morris", "Quebec Back Pain", "FABQ", "Autre"],
+[headNeckTitle]: ["SCAT6", "Neck Disability Index (NDI)", "Copenhagen Neck Functional Scale", "Autre"]
 };
 
-// Isocinétisme – paramètres
-const isokineticSpeeds = ["30°/s", "60°/s", "120°/s", "180°/s", "Autre (précisez)"];
-const isokineticModes = ["Concentrique", "Excentrique", "Isométrique", "Combiné"];
+// Tests force par muscle / articulation
+const testsByMuscle = {
+// Genou
+"Ischiojambiers": ["McCall 90°", "Isométrie 30°", "Nordic", "Nordic Hold", "Razor Curl", "Single Leg Bridge", "Isocinétique 60°/s", "Isocinétique 180°/s", "Autre"],
+"Quadriceps": ["Isométrie 60°", "Leg Extension", "Single Leg Squat", "Isocinétique 60°/s", "Isocinétique 180°/s", "Autre"],
 
-// ---------------------------------------------------------
-// Helpers UI
-// ---------------------------------------------------------
-function slug(s) {
-return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-.replace(/[^a-z0-9]+/g,"-");
-}
-function cssEscape(id) {
-return id.replace(/([ #;?%&,.+*~\':"!^$[\]()=>|/@])/g,'\\$1');
-}
+// Hanche
+"Fléchisseurs hanche": ["Isométrique 45°", "Straight Leg Raise (force)", "Isocinétique 60°/s", "Isocinétique 180°/s", "Autre"],
+"Abducteurs hanche": ["Side-lying isométrique", "Standing belt test", "Isocinétique 60°/s", "Autre"],
+"Adducteurs hanche": ["Squeeze test (5s)", "Copenhagen", "Isocinétique 60°/s", "Autre"],
 
-// Ajoute un champ "Précisez" obligatoire dès qu’un “Autre” (ou “Autres”) est coché
+// Cheville
+"Gastrocnémien": ["Heel Raise – genou tendu (1RM)", "Heel Raise – max reps", "Isométrie 90°", "Isocinétique 60°/s", "Autre"],
+"Soléaire": ["Heel Raise – genou fléchi (1RM)", "Max reps", "Isométrie 90°", "Isocinétique 60°/s", "Autre"],
+"Inverseurs/Éverseurs": ["Dynamométrie manuelle", "Dynamométrie fixe", "Isocinétique 30°/s", "Autre"],
+"Intrinsèques du pied": ["Toe Curl test", "Short Foot test", "Dynamométrie", "Plateforme de pressions", "Autre"]
+};
+
+// ===== Helpers
+const slug = s => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-");
+const cssEscape = id => id.replace(/([ #;?%&,.+*~\':"!^$[\]()=>|/@])/g,'\\$1');
+
 function addOtherField(container, checkbox, placeholder = "Précisez") {
-const id = checkbox.value ? slug(checkbox.value) : "autre";
-let other = container.querySelector(`.other-${id}`);
+const key = checkbox.value ? slug(checkbox.value) : "autre";
+let wrap = container.querySelector(`.other-${key}`);
 if (checkbox.checked) {
-if (!other) {
-other = document.createElement("div");
-other.className = `slide show other-${id}`;
-other.innerHTML = `
-<input type="text" class="other-input" placeholder="${placeholder}" required
-style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;">
-`;
-container.appendChild(other);
+if (!wrap) {
+wrap = document.createElement("div");
+wrap.className = `slide show other-${key}`;
+wrap.innerHTML = `<input type="text" class="other-input" placeholder="${placeholder}" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;">`;
+container.appendChild(wrap);
 }
-} else if (other) {
-other.classList.remove("show");
-setTimeout(() => other.remove(), 300);
+} else if (wrap) {
+wrap.classList.remove("show");
+setTimeout(() => wrap.remove(), 250);
 }
 }
 function makeOtherReactive(root, placeholder = "Précisez") {
@@ -169,26 +151,14 @@ inp.addEventListener("change", () => addOtherField(inp.closest(".checkbox-group"
 });
 }
 
-// “Autre fréquence” → champ précisez (obligatoire)
-function addFrequencyOther(sectionEl) {
-const freqGroup = sectionEl.querySelector(".moment");
-if (!freqGroup) return;
-const other = freqGroup.querySelector("input[type='checkbox'][value='Autre fréquence']");
-if (!other) return;
-other.addEventListener("change", () => {
-addOtherField(freqGroup, other, "Fréquence (précisez)");
-});
-}
-
-// Ajoute sous-questions isocinétisme pour TOUS les groupes d’outils présents dans un bloc
 function attachIsokineticHandlers(scope) {
-const toolGroups = scope.querySelectorAll(".tools-group");
-toolGroups.forEach(group => {
-const isoBox = group.querySelector("input[type='checkbox'][value='Isocinétisme']");
-if (!isoBox) return;
+const groups = scope.querySelectorAll(".tools-group");
+groups.forEach(group => {
+const iso = group.querySelector("input[type='checkbox'][value='Isocinétisme']");
+if (!iso) return;
 const ensure = () => {
 let sub = group.parentElement.querySelector(".isokinetic-sub");
-if (isoBox.checked) {
+if (iso.checked) {
 if (!sub) {
 sub = document.createElement("div");
 sub.className = "slide show isokinetic-sub";
@@ -200,10 +170,8 @@ ${isokineticSpeeds.map(v => `<label><input type="checkbox" value="${v}"> ${v}</l
 <label>Mode de contraction (isocinétisme)</label>
 <div class="checkbox-group iso-mode">
 ${isokineticModes.map(m => `<label><input type="checkbox" value="${m}"> ${m}</label>`).join("")}
-</div>
-`;
+</div>`;
 group.insertAdjacentElement("afterend", sub);
-// “Autre (précisez)” obligatoire si coché
 const otherSpeed = sub.querySelector(".iso-speed input[value*='Autre']");
 otherSpeed.addEventListener("change", () => {
 addOtherField(sub.querySelector(".iso-speed"), otherSpeed, "Vitesse (précisez)");
@@ -211,175 +179,67 @@ addOtherField(sub.querySelector(".iso-speed"), otherSpeed, "Vitesse (précisez)"
 }
 } else if (sub) {
 sub.classList.remove("show");
-setTimeout(() => sub.remove(), 300);
+setTimeout(() => sub.remove(), 250);
 }
 };
-isoBox.addEventListener("change", ensure);
+iso.addEventListener("change", ensure);
 ensure();
 });
 }
 
-// ---------------------------------------------------------
-// Gestion des zones cochées/décochées
-// ---------------------------------------------------------
+function hasUncheckedOther(scope) {
+const others = scope.querySelectorAll("input[type='checkbox'][value='Autre']:checked, input[type='checkbox'][value='Autres']:checked");
+for (const oc of others) {
+const group = oc.closest(".checkbox-group");
+const txt = group && group.querySelector(".other-input");
+if (txt && !txt.value.trim()) return true;
+}
+return false;
+}
+
+function addFrequencyOther(sectionEl) {
+const freqGroup = sectionEl.querySelector(".moment");
+if (!freqGroup) return;
+const other = freqGroup.querySelector("input[type='checkbox'][value='Autre fréquence']");
+if (!other) return;
+other.addEventListener("change", () => addOtherField(freqGroup, other, "Fréquence (précisez)"));
+}
+
+// ===== Logique “fusion” Tête + Rachis cervical
+function getZoneKey(zoneName) {
+return headNeckPair.includes(zoneName) ? headNeckTitle : zoneName;
+}
+function anyHeadNeckChecked() {
+return [...zonesCheckboxes].some(z => headNeckPair.includes(z.value) && z.checked);
+}
+
+// ===== Gestion cohérente des sections par zone
 zonesCheckboxes.forEach(zone => {
 zone.addEventListener("change", () => {
-const zoneName = zone.value;
-if (zone.checked) {
-createZoneSection(zoneName);
-} else {
-removeZoneSection(zoneName);
+const zKey = getZoneKey(zone.value);
+if (headNeckPair.includes(zone.value)) {
+// Fusion : créer section si c'est le 1er des deux coché ; détruire quand les deux sont décochés
+if (anyHeadNeckChecked()) {
+if (!document.getElementById(`section-${slug(headNeckTitle)}`)) {
+createZoneSection(headNeckTitle);
 }
-toggleGlobalSections(); // MI/MS/Sauts/Course uniques
+} else {
+removeZoneSection(headNeckTitle);
+}
+} else {
+if (zone.checked) createZoneSection(zKey);
+else removeZoneSection(zKey);
+}
+toggleGlobalSections();
 });
 });
 
+// ===== Blocs globaux (Sauts / Course)
 function toggleGlobalSections() {
 const selected = [...zonesCheckboxes].filter(z => z.checked).map(z => z.value);
 const hasLower = selected.some(z => lowerBodyZones.includes(z));
-const hasUpper = selected.some(z => upperBodyZones.includes(z));
-const hasHead = selected.includes(headNeck);
-
-// --- Tests fonctionnels MI
-if (hasLower) {
-if (!globalLower.dataset.ready) {
-globalLower.dataset.ready = "1";
-globalLower.style.display = "";
-globalLower.classList.add("fade-in","active");
-globalLower.innerHTML = `
-<h3>Tests fonctionnels globaux – Membres inférieurs</h3>
-<div class="checkbox-group types">
-<label><input type="checkbox" class="toggle-mi"> Testez-vous des mouvements globaux / fonctionnels du membre inférieur ?</label>
-</div>
-<div class="subquestions"></div>
-`;
-const sub = globalLower.querySelector(".subquestions");
-const cb = globalLower.querySelector(".toggle-mi");
-cb.addEventListener("change", () => {
-const id = "sub-global-mi";
-const existing = sub.querySelector(`#${id}`);
-if (cb.checked && !existing) {
-const block = document.createElement("div");
-block.id = id;
-block.classList.add("slide","stagger","show");
-block.innerHTML = `
-<label>Quels tests fonctionnels (MI) ?</label>
-<div class="checkbox-group mi-tests">
-<label><input type="checkbox" value="Squat"> Squat</label>
-<label><input type="checkbox" value="Montée sur banc"> Montée sur banc</label>
-<label><input type="checkbox" value="Soulevé de terre"> Soulevé de terre</label>
-<label><input type="checkbox" value="Autre"> Autre</label>
-</div>
-
-<label>Outils</label>
-<div class="checkbox-group mi-tools tools-group">
-<label><input type="checkbox" value="Encodeur linéaire"> Encodeur linéaire</label>
-<label><input type="checkbox" value="Plateforme de force"> Plateforme de force</label>
-<label><input type="checkbox" value="Sans outil"> Sans outil</label>
-<label><input type="checkbox" value="Autre"> Autre</label>
-</div>
-
-<label>Paramètres étudiés</label>
-<div class="checkbox-group">
-<label><input type="checkbox" value="1RM"> 1RM</label>
-<label><input type="checkbox" value="3RM"> 3RM</label>
-<label><input type="checkbox" value="Isométrie"> Isométrie</label>
-</div>
-
-<label>Critères d’évaluation</label>
-<div class="checkbox-group">
-<label><input type="checkbox" value="Moyenne du groupe"> Moyenne du groupe</label>
-<label><input type="checkbox" value="Ratio / poids du corps"> Ratio / poids du corps</label>
-<label><input type="checkbox" value="Valeur seuil"> Valeur seuil</label>
-</div>
-`;
-sub.appendChild(block);
-makeOtherReactive(block.querySelector(".mi-tests"));
-makeOtherReactive(block.querySelector(".mi-tools"));
-attachIsokineticHandlers(block);
-} else if (!cb.checked && existing) {
-existing.classList.remove("show");
-setTimeout(() => existing.remove(), 400);
-}
-});
-}
-} else {
-globalLower.style.display = "none";
-globalLower.innerHTML = "";
-delete globalLower.dataset.ready;
-}
-
-// --- Tests fonctionnels MS
-if (hasUpper) {
-if (!globalUpper.dataset.ready) {
-globalUpper.dataset.ready = "1";
-globalUpper.style.display = "";
-globalUpper.classList.add("fade-in","active");
-globalUpper.innerHTML = `
-<h3>Tests fonctionnels globaux – Membres supérieurs</h3>
-<div class="checkbox-group types">
-<label><input type="checkbox" class="toggle-ms"> Testez-vous des mouvements globaux / fonctionnels du membre supérieur ?</label>
-</div>
-<div class="subquestions"></div>
-`;
-const sub = globalUpper.querySelector(".subquestions");
-const cb = globalUpper.querySelector(".toggle-ms");
-cb.addEventListener("change", () => {
-const id = "sub-global-ms";
-const existing = sub.querySelector(`#${id}`);
-if (cb.checked && !existing) {
-const block = document.createElement("div");
-block.id = id;
-block.classList.add("slide","stagger","show");
-block.innerHTML = `
-<label>Quels tests fonctionnels (MS) ?</label>
-<div class="checkbox-group ms-tests">
-<label><input type="checkbox" value="Développé couché"> Développé couché</label>
-<label><input type="checkbox" value="Traction"> Traction</label>
-<label><input type="checkbox" value="Tirage"> Tirage</label>
-<label><input type="checkbox" value="Test de gripp"> Test de gripp</label>
-<label><input type="checkbox" value="Autre"> Autre</label>
-</div>
-
-<label>Outils</label>
-<div class="checkbox-group ms-tools tools-group">
-<label><input type="checkbox" value="Encodeur linéaire"> Encodeur linéaire</label>
-<label><input type="checkbox" value="Plateforme de force"> Plateforme de force</label>
-<label><input type="checkbox" value="Sans outil"> Sans outil</label>
-<label><input type="checkbox" value="Autre"> Autre</label>
-</div>
-
-<label>Paramètres étudiés</label>
-<div class="checkbox-group">
-<label><input type="checkbox" value="1RM"> 1RM</label>
-<label><input type="checkbox" value="3RM"> 3RM</label>
-<label><input type="checkbox" value="Isométrie"> Isométrie</label>
-</div>
-
-<label>Critères d’évaluation</label>
-<div class="checkbox-group">
-<label><input type="checkbox" value="Moyenne du groupe"> Moyenne du groupe</label>
-<label><input type="checkbox" value="Ratio / poids du corps"> Ratio / poids du corps</label>
-<label><input type="checkbox" value="Valeur seuil"> Valeur seuil</label>
-</div>
-`;
-sub.appendChild(block);
-makeOtherReactive(block.querySelector(".ms-tests"));
-makeOtherReactive(block.querySelector(".ms-tools"));
-attachIsokineticHandlers(block);
-} else if (!cb.checked && existing) {
-existing.classList.remove("show");
-setTimeout(() => existing.remove(), 400);
-}
-});
-}
-} else {
-globalUpper.style.display = "none";
-globalUpper.innerHTML = "";
-delete globalUpper.dataset.ready;
-}
-
-// --- Sauts (unique) si au moins une zone MI cochée
+const hasHead = selected.some(z => headNeckPair.includes(z));
+// SAUTS : unique si MI cochée
 if (hasLower) {
 if (!globalJumps.dataset.ready) {
 globalJumps.dataset.ready = "1";
@@ -424,8 +284,7 @@ globalJumps.innerHTML = `
 <label><input type="checkbox" value="Valeur seuil"> Valeur seuil</label>
 </div>
 `;
-makeOtherReactive(globalJumps.querySelector(".checkbox-group")); // tests
-makeOtherReactive(globalJumps.querySelector(".jump-tools")); // outils
+makeOtherReactive(globalJumps);
 }
 } else {
 globalJumps.style.display = "none";
@@ -433,7 +292,7 @@ globalJumps.innerHTML = "";
 delete globalJumps.dataset.ready;
 }
 
-// --- Course (unique) si MI cochée OU Tête/Rachis coché
+// COURSE : unique si MI cochée OU tête/rachis coché
 if (hasLower || hasHead) {
 if (!globalCourse.dataset.ready) {
 globalCourse.dataset.ready = "1";
@@ -475,8 +334,7 @@ globalCourse.innerHTML = `
 <label><input type="checkbox" value="Valeur seuil"> Valeur seuil</label>
 </div>
 `;
-makeOtherReactive(globalCourse.querySelector(".checkbox-group")); // tests
-makeOtherReactive(globalCourse.querySelector(".course-tools")); // outils
+makeOtherReactive(globalCourse);
 }
 } else {
 globalCourse.style.display = "none";
@@ -485,13 +343,14 @@ delete globalCourse.dataset.ready;
 }
 }
 
-// ---------------------------------------------------------
-// Création / suppression section par zone
-// ---------------------------------------------------------
+// ===== Création / suppression section
 function createZoneSection(zoneName) {
+// ne pas dupliquer si déjà créé
+if (document.getElementById(`section-${slug(zoneName)}`)) return;
+
 const section = document.createElement("div");
 section.classList.add("subcard", "fade-in");
-section.id = `section-${zoneName.replace(/\s+/g, "-")}`;
+section.id = `section-${slug(zoneName)}`;
 section.innerHTML = `
 <h3>${zoneName}</h3>
 
@@ -504,9 +363,10 @@ section.innerHTML = `
 
 <label>Quels types de tests sont réalisés ?</label>
 <div class="checkbox-group types">
-${zoneName === headNeck ? `
-<label><input type="checkbox" value="Questionnaires"> Questionnaires</label>
+${zoneName === headNeckTitle ? `
 <label><input type="checkbox" value="Test de cognition"> Test de cognition</label>
+<label><input type="checkbox" value="Proprioception / Équilibre"> Proprioception / Équilibre</label>
+<label><input type="checkbox" value="Questionnaires"> Questionnaires</label>
 <label><input type="checkbox" value="Autres données"> Autres données</label>
 ` : `
 <label><input type="checkbox" value="Force"> Force</label>
@@ -521,7 +381,6 @@ ${zoneName === headNeck ? `
 `;
 zoneQuestionsContainer.appendChild(section);
 
-// Fréquence → champ "précisez" si "Autre fréquence"
 addFrequencyOther(section);
 
 const typeCheckboxes = section.querySelectorAll(".types input[type='checkbox']");
@@ -529,69 +388,56 @@ const subQContainer = section.querySelector(".subquestions");
 
 typeCheckboxes.forEach((cb, i) => {
 cb.addEventListener("change", () => {
-const id = `sub-${zoneName}-${cb.value}`;
+const id = `sub-${slug(zoneName)}-${slug(cb.value)}`;
 const existing = subQContainer.querySelector(`#${cssEscape(id)}`);
 
 if (cb.checked) {
-let subSection;
-if (zoneName === headNeck) {
+let subSection = null;
+
+if (zoneName === headNeckTitle) {
+// Cognition
 if (cb.value === "Test de cognition") {
 subSection = document.createElement("div");
 subSection.id = id;
-subSection.classList.add("slide","stagger");
+subSection.className = "slide stagger";
 subSection.style.animationDelay = `${i * 0.1}s`;
 subSection.innerHTML = `
-<h4>Test de cognition – ${zoneName}</h4>
+<h4>Test de cognition</h4>
 <div class="checkbox-group">
 <label><input type="checkbox" value="Test oculaire"> Test oculaire</label>
 <label><input type="checkbox" value="Test vestibulaire"> Test vestibulaire</label>
 <label><input type="checkbox" value="Autre"> Autre</label>
-</div>
-`;
-makeOtherReactive(subSection.querySelector(".checkbox-group"));
-} else if (cb.value === "Autres données") {
-subSection = document.createElement("div");
-subSection.id = id;
-subSection.classList.add("slide","stagger");
-subSection.style.animationDelay = `${i * 0.1}s`;
-subSection.innerHTML = `
-<h4>Autres données – ${zoneName}</h4>
-<input type="text" class="other-input" placeholder="Précisez la donnée collectée" required
-style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;">
-`;
-} else if (cb.value === "Questionnaires") {
-subSection = createQuestionnaireBlock(zoneName, id, i);
+</div>`;
+makeOtherReactive(subSection);
 }
-} else {
+// Proprio
 if (cb.value === "Proprioception / Équilibre") {
 subSection = createProprioBlock(zoneName, id, i);
-} else if (cb.value === "Mobilité") {
-subSection = createMobilityBlock(zoneName, id, i);
-} else if (cb.value === "Force") {
-subSection = createForceBlock(zoneName, id, i);
-} else if (cb.value === "Questionnaires") {
-subSection = createQuestionnaireBlock(zoneName, id, i);
-} else if (cb.value === "Autres données") {
-subSection = document.createElement("div");
-subSection.id = id;
-subSection.classList.add("slide","stagger");
-subSection.style.animationDelay = `${i * 0.1}s`;
-subSection.innerHTML = `
-<h4>Autres données – ${zoneName}</h4>
-<input type="text" class="other-input" placeholder="Précisez la donnée collectée" required
-style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;">
-`;
 }
+// Questionnaires
+if (cb.value === "Questionnaires") {
+subSection = createQuestionnaireBlock(zoneName, id, i);
+}
+// Autres données
+if (cb.value === "Autres données") {
+subSection = createOtherDataBlock(zoneName, id, i);
+}
+} else {
+if (cb.value === "Force") subSection = createForceBlock(zoneName, id, i);
+if (cb.value === "Mobilité") subSection = createMobilityBlock(zoneName, id, i);
+if (cb.value === "Proprioception / Équilibre") subSection = createProprioBlock(zoneName, id, i);
+if (cb.value === "Questionnaires") subSection = createQuestionnaireBlock(zoneName, id, i);
+if (cb.value === "Autres données") subSection = createOtherDataBlock(zoneName, id, i);
 }
 
 if (subSection) {
 subQContainer.appendChild(subSection);
-// Activer “Autre” partout dans la sous-section
+// “Autre” partout
 makeOtherReactive(subSection);
-// Isocinétisme (si outils présents)
+// Isocinétisme sur chaque groupe d’outils
 attachIsokineticHandlers(subSection);
 section.classList.add("active");
-setTimeout(() => subSection.classList.add("show"), 10);
+setTimeout(() => subSection.classList.add("show"), 15);
 }
 } else if (existing) {
 existing.classList.remove("show");
@@ -599,59 +445,86 @@ setTimeout(() => {
 existing.remove();
 const stillChecked = section.querySelectorAll(".types input:checked").length > 0;
 if (!stillChecked) section.classList.remove("active");
-}, 400);
+}, 300);
 }
 });
 });
 }
 
 function removeZoneSection(zoneName) {
-const section = document.getElementById(`section-${zoneName.replace(/\s+/g, "-")}`);
+const section = document.getElementById(`section-${slug(zoneName)}`);
 if (section) section.remove();
 }
 
-// ---------------------------------------------------------
-// BLOCS SPÉCIFIQUES
-// ---------------------------------------------------------
+// ===== Blocs spécifiques
+function createOtherDataBlock(zoneName, id, delayIndex) {
+const div = document.createElement("div");
+div.id = id;
+div.className = "slide stagger";
+div.style.animationDelay = `${delayIndex * 0.1}s`;
+div.innerHTML = `
+<h4>Autres données – ${zoneName}</h4>
+<input type="text" class="other-input" placeholder="Précisez la donnée collectée" required
+style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;">
+`;
+return div;
+}
 
-// Questionnaires – par zone
 function createQuestionnaireBlock(zoneName, id, delayIndex) {
 const div = document.createElement("div");
 div.id = id;
-div.classList.add("slide","stagger");
+div.className = "slide stagger";
 div.style.animationDelay = `${delayIndex * 0.1}s`;
-
-const qList = questionnairesByZone[zoneName] || ["Autre"];
+const list = questionnairesByZone[zoneName] || ["Autre"];
 div.innerHTML = `
 <h4>Questionnaires – ${zoneName}</h4>
 <div class="checkbox-group q-list">
-${qList.map(q => `<label><input type="checkbox" value="${q}"> ${q}</label>`).join("")}
-<label><input type="checkbox" value="Autre"> Autre</label>
-</div>
-`;
+${list.map(q => `<label><input type="checkbox" value="${q}"> ${q}</label>`).join("")}
+</div>`;
 makeOtherReactive(div.querySelector(".q-list"), "Nom du questionnaire");
 return div;
 }
 
-// Force : mouvements → pour chaque mouvement : outils (+ isocinétisme), paramètres, critères
+function createProprioBlock(zoneName, id, delayIndex) {
+const div = document.createElement("div");
+div.id = id;
+div.className = "slide stagger";
+div.style.animationDelay = `${delayIndex * 0.1}s`;
+const list = proprioByZone[zoneName] || [];
+div.innerHTML = `
+<h4>Proprioception / Équilibre – ${zoneName}</h4>
+<label>Quels tests utilisez-vous ?</label>
+<div class="checkbox-group proprio-tests">
+${list.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
+<label><input type="checkbox" value="Autre"> Autre</label>
+</div>
+<label>Critères d’évaluation</label>
+<div class="checkbox-group">
+<label><input type="checkbox" value="Moyenne du groupe"> Moyenne du groupe</label>
+<label><input type="checkbox" value="Valeur seuil"> Valeur seuil</label>
+</div>`;
+makeOtherReactive(div.querySelector(".proprio-tests"), "Nom du test");
+return div;
+}
+
+// ===== FORCE (hiérarchie complète)
 function createForceBlock(zoneName, id, delayIndex) {
 const div = document.createElement("div");
 div.id = id;
-div.classList.add("slide","stagger");
+div.className = "slide stagger";
 div.style.animationDelay = `${delayIndex * 0.1}s`;
 
-// Mouvements par zone
+// Mouvements de base
 const moves = [];
-// génériques
+// par défaut
 moves.push("Flexion/Extension");
-if (["Tête / Rachis cervical","Poignet / Main","Rachis lombaire"].includes(zoneName)) moves.push("Inclinaisons");
-if (!["Genou","Cheville / Pied","Coude","Poignet / Main"].includes(zoneName)) moves.push("Rotations");
-if (["Épaule","Hanche"].includes(zoneName)) moves.push("Adduction/Abduction");
+if (!["Genou", "Cheville / Pied", "Coude", "Poignet / Main"].includes(zoneName)) moves.push("Rotations");
+if (["Épaule", "Hanche"].includes(zoneName)) moves.push("Adduction/Abduction");
 if (zoneName === "Cheville / Pied") {
 moves.push("Éversion/Inversion");
-moves.push("Flexion plantaire – Gastrocnémien");
-moves.push("Flexion plantaire – Soléaire");
+moves.push("Intrinsèques du pied"); // bloc force spécifique
 }
+if (zoneName === "Rachis lombaire") { /* Inclinaisons non pertinentes en force */ }
 if (zoneName === "Épaule") moves.push("ASH Test");
 
 div.innerHTML = `
@@ -663,9 +536,9 @@ ${moves.map(m => `<label><input type="checkbox" value="${m}"> ${m}</label>`).joi
 <div class="force-moves-details"></div>
 `;
 
-// Quand on coche un mouvement → afficher détail
 const details = div.querySelector(".force-moves-details");
 const moveBoxes = div.querySelectorAll(".force-moves input[type='checkbox']");
+
 moveBoxes.forEach((mb, i) => {
 mb.addEventListener("change", () => {
 const mid = `${id}-move-${slug(mb.value)}`;
@@ -674,81 +547,128 @@ const existing = details.querySelector(`#${cssEscape(mid)}`);
 if (mb.checked) {
 const block = document.createElement("div");
 block.id = mid;
-block.classList.add("slide","stagger","show");
+block.className = "slide stagger show";
 block.style.animationDelay = `${i * 0.05}s`;
 
-// Outils de base
-let tools = [...toolsForceGeneric];
-
-// Rachis lombaire : Flex/Ext → Shirado / Sorensen
-if (zoneName === "Rachis lombaire" && mb.value.includes("Flexion/Extension")) {
-tools = [...tools, "Test de Shirado", "Test de Sorensen"];
-}
-
-// Genou – Flex/Ext : sous-blocs Ischios & Quadriceps
-let kneeExtraHTML = "";
+// 1) GENOU : Flex/Ext -> Ischios / Quads
 if (zoneName === "Genou" && mb.value === "Flexion/Extension") {
-kneeExtraHTML = `
-<div class="slide show">
-<h5 style="margin-top:10px">Sous-tests – Ischiojambiers</h5>
-<div class="checkbox-group knee-hams">
-<label><input type="checkbox" value="McCall 90°"> McCall 90°</label>
-<label><input type="checkbox" value="Isométrie 30°"> Isométrie 30°</label>
-<label><input type="checkbox" value="Nordic"> Nordic</label>
-<label><input type="checkbox" value="Autre"> Autre</label>
+block.innerHTML = `
+<h5>${mb.value}</h5>
+<label>Choix du groupe musculaire</label>
+<div class="checkbox-group knee-muscles">
+<label><input type="checkbox" value="Ischiojambiers"> Ischiojambiers</label>
+<label><input type="checkbox" value="Quadriceps"> Quadriceps</label>
 </div>
-<label>Outils (ischiojambiers)</label>
-<div class="checkbox-group knee-hams-tools tools-group">
-<label><input type="checkbox" value="NordBord"> NordBord</label>
-<label><input type="checkbox" value="Plateforme de force"> Plateforme de force</label>
-<label><input type="checkbox" value="Dynamomètre fixe"> Dynamomètre fixe</label>
-<label><input type="checkbox" value="Dynamomètre manuel"> Dynamomètre manuel</label>
-<label><input type="checkbox" value="Isocinétisme"> Isocinétisme</label>
-<label><input type="checkbox" value="Autre"> Autre</label>
-</div>
-
-<h5 style="margin-top:10px">Sous-tests – Quadriceps</h5>
-<div class="checkbox-group knee-quads">
-<label><input type="checkbox" value="Isométrie 60°"> Isométrie 60°</label>
-<label><input type="checkbox" value="Isocinétisme quadriceps"> Isocinétisme</label>
-<label><input type="checkbox" value="Autre"> Autre</label>
-</div>
-<label>Outils (quadriceps)</label>
-<div class="checkbox-group knee-quads-tools tools-group">
-<label><input type="checkbox" value="Dynamomètre fixe"> Dynamomètre fixe</label>
-<label><input type="checkbox" value="Dynamomètre manuel"> Dynamomètre manuel</label>
-<label><input type="checkbox" value="Plateforme de force"> Plateforme de force</label>
-<label><input type="checkbox" value="Isocinétisme"> Isocinétisme</label>
-<label><input type="checkbox" value="Autre"> Autre</label>
-</div>
-</div>
+<div class="knee-muscles-details"></div>
 `;
+const mWrap = block.querySelector(".knee-muscles");
+const dWrap = block.querySelector(".knee-muscles-details");
+mWrap.querySelectorAll("input").forEach((mcb, j) => {
+mcb.addEventListener("change", () => {
+const gid = `${mid}-${slug(mcb.value)}`;
+const ex = dWrap.querySelector(`#${cssEscape(gid)}`);
+if (mcb.checked && !ex) {
+dWrap.appendChild(
+createMuscleDetailBlock(zoneName, mcb.value, gid, i+j)
+);
+} else if (!mcb.checked && ex) {
+ex.classList.remove("show");
+setTimeout(() => ex.remove(), 250);
+}
+});
+});
+
+// 2) HANCHE : Flex / Abd / Add avec groupes
+} else if (zoneName === "Hanche" && ["Adduction/Abduction", "Flexion/Extension"].includes(mb.value)) {
+// On propose 3 groupes : Fléchisseurs / Abducteurs / Adducteurs
+block.innerHTML = `
+<h5>${mb.value}</h5>
+<label>Groupe musculaire</label>
+<div class="checkbox-group hip-muscles">
+<label><input type="checkbox" value="Fléchisseurs hanche"> Fléchisseurs hanche</label>
+<label><input type="checkbox" value="Abducteurs hanche"> Abducteurs hanche</label>
+<label><input type="checkbox" value="Adducteurs hanche"> Adducteurs hanche</label>
+</div>
+<div class="hip-muscles-details"></div>
+`;
+const mWrap = block.querySelector(".hip-muscles");
+const dWrap = block.querySelector(".hip-muscles-details");
+mWrap.querySelectorAll("input").forEach((mcb, j) => {
+mcb.addEventListener("change", () => {
+const gid = `${mid}-${slug(mcb.value)}`;
+const ex = dWrap.querySelector(`#${cssEscape(gid)}`);
+if (mcb.checked && !ex) {
+dWrap.appendChild(
+createMuscleDetailBlock(zoneName, mcb.value, gid, i+j)
+);
+} else if (!mcb.checked && ex) {
+ex.classList.remove("show");
+setTimeout(() => ex.remove(), 250);
+}
+});
+});
+
+// 3) CHEVILLE : Flexion plantaire (Gastro/Soléaire), Inversion/Éversion, Intrinsèques
+} else if (zoneName === "Cheville / Pied" && (mb.value.includes("Éversion/Inversion") || mb.value.includes("Flexion/Extension") || mb.value.includes("Intrinsèques"))) {
+if (mb.value.includes("Flexion/Extension")) {
+block.innerHTML = `
+<h5>${mb.value}</h5>
+<label>Groupe musculaire</label>
+<div class="checkbox-group ankle-muscles">
+<label><input type="checkbox" value="Gastrocnémien"> Gastrocnémien</label>
+<label><input type="checkbox" value="Soléaire"> Soléaire</label>
+</div>
+<div class="ankle-muscles-details"></div>
+`;
+const mWrap = block.querySelector(".ankle-muscles");
+const dWrap = block.querySelector(".ankle-muscles-details");
+mWrap.querySelectorAll("input").forEach((mcb, j) => {
+mcb.addEventListener("change", () => {
+const gid = `${mid}-${slug(mcb.value)}`;
+const ex = dWrap.querySelector(`#${cssEscape(gid)}`);
+if (mcb.checked && !ex) {
+dWrap.appendChild(
+createMuscleDetailBlock(zoneName, mcb.value, gid, i+j)
+);
+} else if (!mcb.checked && ex) {
+ex.classList.remove("show");
+setTimeout(() => ex.remove(), 250);
+}
+});
+});
+} else if (mb.value.includes("Éversion/Inversion")) {
+// on traite comme un "groupe" unique inverseurs/éverseurs
+const gid = `${mid}-inv-ev`;
+block.innerHTML = `
+<h5>${mb.value}</h5>
+<div class="inv-ev-details"></div>
+`;
+const dWrap = block.querySelector(".inv-ev-details");
+dWrap.appendChild(createMuscleDetailBlock(zoneName, "Inverseurs/Éverseurs", gid, i));
+} else if (mb.value.includes("Intrinsèques")) {
+const gid = `${mid}-intrinseques`;
+block.innerHTML = `<h5>Intrinsèques du pied</h5><div class="foot-intr-details"></div>`;
+const dWrap = block.querySelector(".foot-intr-details");
+dWrap.appendChild(createMuscleDetailBlock(zoneName, "Intrinsèques du pied", gid, i));
 }
 
-// Épaule : ASH Test → positions
-let ashHTML = "";
-if (zoneName === "Épaule" && mb.value === "ASH Test") {
-ashHTML = `
+// 4) ÉPAULE : ASH test (positions)
+} else if (zoneName === "Épaule" && mb.value === "ASH Test") {
+block.innerHTML = `
+<h5>ASH Test</h5>
 <label>Dans quelle(s) position(s) évaluez-vous l'ASH test ?</label>
 <div class="checkbox-group">
 <label><input type="checkbox" value="I (180°)"> I (180°)</label>
 <label><input type="checkbox" value="Y (135°)"> Y (135°)</label>
 <label><input type="checkbox" value="T (90°)"> T (90°)</label>
 <label><input type="checkbox" value="I (0°)"> I (0°)</label>
+<label><input type="checkbox" value="Autre"> Autre</label>
 </div>
-`;
-}
-
-block.innerHTML = `
-<h5 style="margin-top:10px">${mb.value}</h5>
-${kneeExtraHTML}
 
 <label>Outils utilisés</label>
 <div class="checkbox-group tools-group">
-${tools.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
+${toolsForceGeneric.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
 </div>
-
-${ashHTML}
 
 <label>Paramètres étudiés</label>
 <div class="checkbox-group">
@@ -760,16 +680,42 @@ ${paramsForce.map(p => `<label><input type="checkbox" value="${p}"> ${p}</label>
 ${criteriaForce.map(c => `<label><input type="checkbox" value="${c}"> ${c}</label>`).join("")}
 </div>
 `;
-details.appendChild(block);
-
-// “Autre” réactif partout
-block.querySelectorAll(".checkbox-group").forEach(g => makeOtherReactive(g));
-// Isocinétisme pour chaque groupe d'outils présent
+makeOtherReactive(block);
 attachIsokineticHandlers(block);
 
+// 5) Autres articulations (mouvement “simple”)
+} else {
+block.innerHTML = `
+<h5>${mb.value}</h5>
+
+<label>Outils utilisés</label>
+<div class="checkbox-group tools-group">
+${toolsForceGeneric.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
+${zoneName === "Rachis lombaire" && mb.value.includes("Flexion/Extension") ? `
+<label><input type="checkbox" value="Test de Shirado"> Test de Shirado</label>
+<label><input type="checkbox" value="Test de Sorensen"> Test de Sorensen</label>
+` : ""}
+<label><input type="checkbox" value="Autre"> Autre</label>
+</div>
+
+<label>Paramètres étudiés</label>
+<div class="checkbox-group">
+${paramsForce.map(p => `<label><input type="checkbox" value="${p}"> ${p}</label>`).join("")}
+</div>
+
+<label>Critères d’évaluation</label>
+<div class="checkbox-group">
+${criteriaForce.map(c => `<label><input type="checkbox" value="${c}"> ${c}</label>`).join("")}
+</div>
+`;
+makeOtherReactive(block);
+attachIsokineticHandlers(block);
+}
+
+details.appendChild(block);
 } else if (existing) {
 existing.classList.remove("show");
-setTimeout(() => existing.remove(), 400);
+setTimeout(() => existing.remove(), 250);
 }
 });
 });
@@ -777,20 +723,61 @@ setTimeout(() => existing.remove(), 400);
 return div;
 }
 
-// Mobilité : mouvements → outils (KTW / Sit-and-reach) → critères
+// Détail par groupe musculaire (outils → tests → paramètres → critères)
+function createMuscleDetailBlock(zoneName, muscleLabel, gid, delay) {
+const wrap = document.createElement("div");
+wrap.id = gid;
+wrap.className = "slide stagger show";
+wrap.style.animationDelay = `${delay * 0.05}s`;
+
+const testList = testsByMuscle[muscleLabel] || ["Autre"];
+
+wrap.innerHTML = `
+<h5 style="margin-top:10px">${muscleLabel}</h5>
+
+<label>Outils utilisés</label>
+<div class="checkbox-group tools-group">
+${toolsForceGeneric.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
+<label><input type="checkbox" value="Autre"> Autre</label>
+</div>
+
+<label>Tests spécifiques</label>
+<div class="checkbox-group muscle-tests">
+${testList.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
+</div>
+
+<label>Paramètres étudiés</label>
+<div class="checkbox-group">
+${["Force max","Force moyenne","Force relative (N/kg)","RFD","Angle du pic de force","Endurance"].map(p => `<label><input type="checkbox" value="${p}"> ${p}</label>`).join("")}
+</div>
+
+<label>Critères d’évaluation</label>
+<div class="checkbox-group">
+${["Ratio agoniste/antagoniste","Ratio droite/gauche","Valeur seuil"].map(c => `<label><input type="checkbox" value="${c}"> ${c}</label>`).join("")}
+</div>
+`;
+
+// “Autre” -> précisez
+wrap.querySelectorAll(".checkbox-group").forEach(g => makeOtherReactive(g));
+// Isocinétisme : vitesses & modes
+attachIsokineticHandlers(wrap);
+
+return wrap;
+}
+
+// ===== MOBILITÉ (hiérarchie : mouvement -> outils -> critères)
 function createMobilityBlock(zoneName, id, delayIndex) {
 const div = document.createElement("div");
 div.id = id;
-div.classList.add("slide","stagger");
+div.className = "slide stagger";
 div.style.animationDelay = `${delayIndex * 0.1}s`;
 
-// Mouvements par zone
 const moves = [];
 moves.push("Flexion/Extension");
-if (["Tête / Rachis cervical","Poignet / Main","Rachis lombaire"].includes(zoneName)) moves.push("Inclinaisons");
 if (!["Genou","Cheville / Pied","Coude","Poignet / Main"].includes(zoneName)) moves.push("Rotations");
 if (["Épaule","Hanche"].includes(zoneName)) moves.push("Adduction/Abduction");
 if (zoneName === "Cheville / Pied") moves.push("Éversion/Inversion");
+if (zoneName === "Rachis lombaire") moves.push("Inclinaisons");
 
 div.innerHTML = `
 <h4>Mobilité – ${zoneName}</h4>
@@ -802,32 +789,24 @@ ${moves.map(m => `<label><input type="checkbox" value="${m}"> ${m}</label>`).joi
 `;
 
 const details = div.querySelector(".mob-moves-details");
-const moveBoxes = div.querySelectorAll(".mob-moves input[type='checkbox']");
-
-moveBoxes.forEach((mb, i) => {
+div.querySelectorAll(".mob-moves input").forEach((mb, i) => {
 mb.addEventListener("change", () => {
 const mid = `${id}-move-${slug(mb.value)}`;
 const existing = details.querySelector(`#${cssEscape(mid)}`);
-
 if (mb.checked) {
 const block = document.createElement("div");
 block.id = mid;
-block.classList.add("slide","stagger","show");
+block.className = "slide stagger show";
 block.style.animationDelay = `${i * 0.05}s`;
 
-// Outils spécifiques additionnels
 let tools = [...toolsMobilityGeneric];
-
-// Sit-and-reach (lombaire + genou ext)
 if ((zoneName === "Genou" && mb.value === "Flexion/Extension") || zoneName === "Rachis lombaire") {
 tools = [...tools, "Sit-and-reach"];
 }
-// KTW (cheville – flexion dorsale) : on l’inclut quand on parle de flexion à la cheville
 if (zoneName === "Cheville / Pied" && mb.value.toLowerCase().includes("flexion")) {
 tools = [...tools, "Knee-to-wall (KTW)"];
 }
 
-// Critères – lombaire spécifique
 const crits = (zoneName === "Rachis lombaire") ? criteriaMobilityLumbar : criteriaMobilityGeneric;
 
 block.innerHTML = `
@@ -844,12 +823,10 @@ ${crits.map(c => `<label><input type="checkbox" value="${c}"> ${c}</label>`).joi
 </div>
 `;
 details.appendChild(block);
-
 block.querySelectorAll(".checkbox-group").forEach(g => makeOtherReactive(g));
-
 } else if (existing) {
 existing.classList.remove("show");
-setTimeout(() => existing.remove(), 400);
+setTimeout(() => existing.remove(), 250);
 }
 });
 });
@@ -857,35 +834,7 @@ setTimeout(() => existing.remove(), 400);
 return div;
 }
 
-// Proprio / Équilibre
-function createProprioBlock(zoneName, id, delayIndex) {
-const div = document.createElement("div");
-div.id = id;
-div.classList.add("slide","stagger");
-div.style.animationDelay = `${delayIndex * 0.1}s`;
-
-const tests = proprioByZone[zoneName] || [];
-
-div.innerHTML = `
-<h4>Proprioception / Équilibre – ${zoneName}</h4>
-<label>Quels tests utilisez-vous ?</label>
-<div class="checkbox-group proprio-tests">
-${tests.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
-<label><input type="checkbox" value="Autre"> Autre</label>
-</div>
-<label>Critères d’évaluation</label>
-<div class="checkbox-group">
-<label><input type="checkbox" value="Moyenne du groupe"> Moyenne du groupe</label>
-<label><input type="checkbox" value="Valeur seuil"> Valeur seuil</label>
-</div>
-`;
-makeOtherReactive(div.querySelector(".proprio-tests"), "Nom du test");
-return div;
-}
-
-// ---------------------------------------------------------
-// VALIDATION stricte avant envoi
-// ---------------------------------------------------------
+// ===== VALIDATION stricte
 submitBtn.addEventListener("click", (e) => {
 e.preventDefault();
 resultMessage.textContent = "";
@@ -893,79 +842,89 @@ resultMessage.style.color = "red";
 
 const role = document.querySelector("input[name='role']:checked");
 const structure = document.querySelector("input[name='structure']:checked");
-const selectedZones = [...zonesCheckboxes].filter(z => z.checked);
-
 if (!role || !structure) {
 resultMessage.textContent = "⚠️ Merci de compléter les informations générales.";
 return;
 }
-if (selectedZones.length === 0) {
+
+const selectedZonesRaw = [...zonesCheckboxes].filter(z => z.checked);
+if (selectedZonesRaw.length === 0) {
 resultMessage.textContent = "⚠️ Merci de sélectionner au moins une zone anatomique.";
 return;
 }
 
-// Vérifie chaque zone
-const zonesIncomplete = selectedZones.some(z => {
-const sec = document.getElementById(`section-${z.value.replace(/\s+/g, "-")}`);
+// Construire l’ensemble des zones “logiques” (fusion tête/rachis)
+const selectedZoneKeys = [];
+const headOrNeck = selectedZonesRaw.some(z => headNeckPair.includes(z.value));
+if (headOrNeck) selectedZoneKeys.push(headNeckTitle);
+selectedZonesRaw.forEach(z => {
+if (!headNeckPair.includes(z.value)) selectedZoneKeys.push(z.value);
+});
+
+// Validation par zone
+const zonesIncomplete = selectedZoneKeys.some(zName => {
+const sec = document.getElementById(`section-${slug(zName)}`);
 if (!sec) return true;
 
-// Au moins un choix fréquence OU type
+// Fréquences ou types au minimum
 const hasFreq = !!sec.querySelector(".moment input:checked");
 const hasType = !!sec.querySelector(".types input:checked");
 if (!hasFreq && !hasType) return true;
 
-// "Autre fréquence" -> champ précisez non vide
+// Autre fréquence → préciser
 const of = sec.querySelector(".moment input[value='Autre fréquence']:checked");
 if (of) {
 const txt = sec.querySelector(".moment .other-input");
 if (!txt || !txt.value.trim()) return true;
 }
 
-// Force/Mobilité cochés -> au moins un mouvement
+// Si Force cochée → au moins un mouvement, et si mouvement → au moins un outil, params, critères
 const forceChecked = sec.querySelector(".types input[value='Force']:checked");
 if (forceChecked) {
-const movementArea = sec.querySelector(".force-moves");
-if (!movementArea || !movementArea.querySelector("input:checked")) return true;
-// Si “Autre” coché quelque part → son champ doit être rempli
+const mArea = sec.querySelector(".force-moves");
+if (!mArea || !mArea.querySelector("input:checked")) return true;
+
+// vérifier “Autre” partout + isokinétisme autre vitesse précisée
 if (hasUncheckedOther(sec)) return true;
-// Isocinétisme “Autre (vitesse)” → obligatoire
+
 const isoOther = sec.querySelector(".isokinetic-sub .iso-speed input[value*='Autre']:checked");
 if (isoOther) {
 const txt = sec.querySelector(".isokinetic-sub .iso-speed .other-input");
 if (!txt || !txt.value.trim()) return true;
 }
 }
+
+// Si Mobilité cochée → au moins un mouvement + outils + critères
 const mobChecked = sec.querySelector(".types input[value='Mobilité']:checked");
 if (mobChecked) {
-const movementArea = sec.querySelector(".mob-moves");
-if (!movementArea || !movementArea.querySelector("input:checked")) return true;
+const mArea = sec.querySelector(".mob-moves");
+if (!mArea || !mArea.querySelector("input:checked")) return true;
 if (hasUncheckedOther(sec)) return true;
 }
 
-// “Autres données” -> champ texte obligatoire
-const otherData = [...sec.querySelectorAll(".types input[value='Autres données']:checked")];
-for (const _ of otherData) {
-const txt = sec.querySelector("input.other-input");
+// Questionnaires → si “Autre” coché → préciser
+if (hasUncheckedOther(sec)) return true;
+
+// Autres données → champ obligatoire
+const otherData = sec.querySelector(".types input[value='Autres données']:checked");
+if (otherData) {
+const txt = sec.querySelector(".other-input");
 if (!txt || !txt.value.trim()) return true;
 }
-
-// Questionnaires → pas d’obligation stricte de cocher une liste, mais “Autre” exige précision
-if (hasUncheckedOther(sec)) return true;
 
 return false;
 });
 
 if (zonesIncomplete) {
-resultMessage.textContent = "⚠️ Merci de compléter toutes les sous-sections (mouvements, outils, paramètres, critères, précisions…).";
+resultMessage.textContent = "⚠️ Merci de compléter toutes les sous-sections (mouvements, outils, tests, paramètres, critères, précisions…).";
 return;
 }
 
-// Global jumps/course/func → si “Autre” coché, exiger précision
-const globals = [globalLower, globalUpper, globalJumps, globalCourse];
-for (const g of globals) {
+// Globaux (Sauts / Course) : “Autre” doit être précisé si coché
+for (const g of [globalJumps, globalCourse]) {
 if (!g || !g.dataset.ready) continue;
 if (hasUncheckedOther(g)) {
-resultMessage.textContent = "⚠️ Merci de préciser les champs 'Autre' sélectionnés.";
+resultMessage.textContent = "⚠️ Merci de préciser les champs 'Autre' dans les sections globales.";
 return;
 }
 }
@@ -974,15 +933,5 @@ resultMessage.style.color = "#0074d9";
 resultMessage.textContent = "✅ Merci ! Vos réponses sont prêtes à être envoyées (liaison Google Form possible).";
 window.scrollTo({ top: 0, behavior: "smooth" });
 });
-
-function hasUncheckedOther(scope) {
-const others = scope.querySelectorAll("input[type='checkbox'][value='Autre']:checked, input[type='checkbox'][value='Autres']:checked");
-for (const oc of others) {
-const group = oc.closest(".checkbox-group");
-const txt = group && group.querySelector(".other-input");
-if (txt && !txt.value.trim()) return true;
-}
-return false;
-}
 
 });
