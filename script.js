@@ -1,493 +1,201 @@
-// script.js — V17 (Full, based on V8 with all V9–V17 changes)
-// ------------------------------------------------------------------
-// ✅ Liaison Google Form (tout le payload sérialisé dans un champ entry.*)
-// ✅ Champs "Autre" : uniques + champ texte obligatoire
-// ✅ VII → 7 dans la question d’équipe
-// ✅ Course organisée en 3 blocs (Énergétique / Vitesse / COD) + "Autre"
-// ✅ "Valeur de référence individuelle" remplace "Valeur seuil" + "Autre"
-// ✅ Paramètres globaux MI : "Résistance maximale" + "Isométrie" + "Autre"
-// ✅ Inclinaisons force & mobilité pour rachis cervical et lombaire
-// ✅ Suppression des doublons "Autre" partout
-// ✅ Tests globaux MS/MI, Sauts, Course avec question Oui/Non (gating)
-// ✅ Validation stricte : tous champs requis si section affichée
-// ------------------------------------------------------------------
 
-document.addEventListener("DOMContentLoaded", () => {
-  // ====== Sélecteurs généraux attendus dans l'index ======
-  const zonesCheckboxes = document.querySelectorAll("#zones input[type='checkbox']");
-  const zoneQuestionsContainer = document.getElementById("zoneQuestions");
-  const submitBtn = document.getElementById("submitBtn");
-  const resultMessage = document.getElementById("resultMessage");
-  const form = document.getElementById("questionnaireForm") || document.getElementById("mainForm") || document.body;
+// ===== Questionnaire Rugby – V19 (complète) =====
+document.addEventListener('DOMContentLoaded', () => {
 
-  // Progress (facultatif si barre présente)
-  const progressBar = document.getElementById("progress-bar");
-  const progressText = document.getElementById("progress-text");
+  // ---- raccourcis DOM
+  const $ = sel => document.querySelector(sel);
+  const $$ = sel => Array.from(document.querySelectorAll(sel));
 
-  function updateProgress() {
-    if (!progressBar || !progressText) return;
-    const cards = document.querySelectorAll(".card");
-    const filled = [...cards].filter(sec => sec.querySelector("input:checked") || sec.querySelector("input.other-input")?.value?.trim()).length;
-    const total = cards.length || 1;
-    const pct = Math.max(0, Math.min(100, Math.round((filled / total) * 100)));
-    progressBar.style.width = pct + "%";
-    progressText.textContent = `Progression : ${pct}%`;
+  // ---- progress
+  const progressBar = $('#progress-bar');
+  const progressText = $('#progress-text');
+
+  function updateProgress(){
+    const reqs = [
+      () => $('#nom').value.trim(),
+      () => $('#prenom').value.trim(),
+      () => $$('input[name="role"]:checked').length,
+      () => $$('input[name="equipe"]:checked').length,
+      () => $$('#zones input:checked').length
+    ];
+    const filled = reqs.reduce((a,f)=>a + (f()?1:0), 0);
+    const total = reqs.length;
+    const pct = Math.round(100*filled/total);
+    progressBar.style.width = pct+'%';
+    progressText.textContent = 'Progression : ' + pct + '%';
   }
-  document.addEventListener("change", updateProgress);
+  document.addEventListener('input', updateProgress);
+  document.addEventListener('change', updateProgress);
+  updateProgress();
 
-  // ====== Groupes de zones ======
-  const lowerBodyZones = ["Hanche", "Genou", "Cheville / Pied"];
-  const upperBodyZones = ["Épaule", "Coude", "Poignet / Main"];
-  const headNeckPair = ["Tête", "Rachis cervical"];
-  const headNeckTitle = "Tête / Rachis cervical";
+  // ---- affichage champs "Autre" (role + communes)
+  const roleAutre = $('#role-autre');
+  const roleWrap = $('#role-autre-wrap');
+  roleAutre.addEventListener('change', () => {
+    if (roleAutre.checked){ roleWrap.classList.add('show'); $('#role-autre-text').setAttribute('required','required'); }
+  });
+  $$('#role input[type="radio"]').forEach(r=>{
+    if (r!==roleAutre) r.addEventListener('change', ()=>{
+      roleWrap.classList.remove('show');
+      $('#role-autre-text').removeAttribute('required');
+      $('#role-autre-text').value='';
+    });
+  });
+  const barrAutre = $('#barrieres-autre');
+  const barrWrap = $('#barrieres-autre-wrap');
+  barrAutre.addEventListener('change', ()=>{
+    if (barrAutre.checked){ barrWrap.classList.add('show'); $('#barrieres-autre-text').setAttribute('required','required'); }
+    else { barrWrap.classList.remove('show'); $('#barrieres-autre-text').removeAttribute('required'); $('#barrieres-autre-text').value=''; }
+  });
+  const choixAutre = $('#choix-autre');
+  const choixWrap = $('#choix-autre-wrap');
+  choixAutre.addEventListener('change', ()=>{
+    if (choixAutre.checked){ choixWrap.classList.add('show'); $('#choix-autre-text').setAttribute('required','required'); }
+    else { choixWrap.classList.remove('show'); $('#choix-autre-text').removeAttribute('required'); $('#choix-autre-text').value=''; }
+  });
 
-  // ====== Blocs globaux uniques (créés à la volée) ======
-  const globalWrap = document.getElementById("dynamicSection") || zoneQuestionsContainer?.parentElement || document.body;
+  // ---- zones
+  const lowerBody = ['Hanche','Genou','Cheville / Pied'];
+  const headNeck = 'Tête / Rachis cervical';
 
-  const globalJumps = document.createElement("div");
-  globalJumps.id = "global-jumps";
-  globalJumps.className = "subcard";
-  globalJumps.style.display = "none";
-  globalWrap.appendChild(globalJumps);
+  const zoneContainer = $('#zoneContainer');
+  const zones = $$('#zones input[type="checkbox"]');
 
-  const globalCourse = document.createElement("div");
-  globalCourse.id = "global-course";
-  globalCourse.className = "subcard";
-  globalCourse.style.display = "none";
-  globalWrap.appendChild(globalCourse);
-
-  const globalMS = document.createElement("div"); // Membre Supérieur
-  globalMS.id = "global-ms";
-  globalMS.className = "subcard";
-  globalMS.style.display = "none";
-  globalWrap.appendChild(globalMS);
-
-  const globalMI = document.createElement("div"); // Membre Inférieur
-  globalMI.id = "global-mi";
-  globalMI.className = "subcard";
-  globalMI.style.display = "none";
-  globalWrap.appendChild(globalMI);
-
-  // ====== Données (listes de référence) ======
-  const toolsForceGeneric = ["Dynamomètre manuel","Dynamomètre fixe","Isocinétisme","Plateforme de force","Sans outil","Autre"];
-  const toolsMobilityGeneric = ["Goniomètre","Inclinomètre","Autre"];
-  const encoderTools = ["Sans outil","Encodeur linéaire","Autre"];
-
-  const paramsForce = ["Force max","Force moyenne","Force relative (N/kg)","RFD","Angle du pic de force","Endurance"];
-  const paramsGlobalMS = ["Isométrie","Résistance maximale","Autre"];
-  const paramsGlobalMI = ["Isométrie","Résistance maximale","Autre"];
-
-  const criteriaCommon = ["Ratio agoniste/antagoniste","Ratio droite/gauche","Valeur de référence individuelle","Autre"];
-  const criteriaMobilityGeneric = ["Comparaison droite/gauche","Valeur de référence individuelle","Autre"];
-  const criteriaMobilitySpine = ["Moyenne du groupe","Valeur de référence individuelle","Autre"];
-
-  const isokineticSpeeds = ["30°/s","60°/s","120°/s","180°/s","Autre"];
-  const isokineticModes = ["Concentrique","Excentrique","Isométrique","Combiné"];
+  // données communes
+  const forceTools = ['Dynamomètre manuel','Dynamomètre fixe','Isocinétisme','Plateforme de force','Sans outil','Autre'];
+  const mobilityToolsBase = ['Goniomètre','Inclinomètre','Autre'];
+  const criteriaForce = ['Ratio agoniste/antagoniste','Ratio droite/gauche','Valeur de référence individuelle','Autre'];
+  const criteriaMobility = ['Comparaison droite/gauche','Valeur de référence individuelle','Autre'];
+  const criteriaMobilityLumbar = ['Moyenne du groupe','Valeur de référence individuelle','Autre'];
+  const paramsForce = [
+    'Force max (N)','Force moyenne (N)',
+    'Force relative (N/kg)','RFD (Rate of Force Development)',
+    'Angle du pic de force (°)','Endurance'
+  ];
 
   const proprioByZone = {
-    "Cheville / Pied": ["Y-Balance Test","Star Excursion","Single Leg Balance Test","Autre"],
-    "Genou": ["Y-Balance Test","Star Excursion","FMS (Lower)","Autre"],
-    "Hanche": ["Y-Balance Test","Star Excursion","FMS (Lower)","Autre"],
-    "Épaule": ["Y-Balance Test (épaule)","FMS (Upper)","Autre"],
-    [headNeckTitle]: ["Test proprio cervical (laser)","Autre"],
-    "Poignet / Main": ["Autre"],
-    "Coude": ["Autre"],
-    "Rachis lombaire": ["FMS (Core)","Autre"]
+    'Cheville / Pied': ['Y-Balance Test','Star Excursion','Single Leg Balance Test','Autre'],
+    'Genou': ['Y-Balance Test','Star Excursion','FMS (Lower)','Autre'],
+    'Hanche': ['Y-Balance Test','Star Excursion','FMS (Lower)','Autre'],
+    'Épaule': ['Y-Balance Test (épaule)','FMS (Upper)','Autre'],
+    [headNeck]: ['Test proprio cervical (laser)','Autre'],
+    'Poignet / Main': ['Autre'],
+    'Coude': ['Autre'],
+    'Rachis lombaire': ['FMS (Core)','Autre']
   };
 
   const questionnairesByZone = {
-    "Genou": ["KOOS","IKDC","Lysholm","Tegner","ACL-RSI","KOS-ADLS","LEFS","Autre"],
-    "Hanche": ["HAGOS","iHOT-12","HOOS","HOS","Autre"],
-    "Épaule": ["QuickDASH","DASH","SIRSI","ASES","SPADI","Oxford Shoulder Score","Autre"],
-    "Coude": ["Oxford Elbow Score","MEPS","DASH","QuickDASH","Autre"],
-    "Poignet / Main": ["PRWE","DASH","QuickDASH","Boston Carpal Tunnel","Autre"],
-    "Cheville / Pied": ["CAIT","FAAM-ADL","FAAM-Sport","FAOS","FFI","Autre"],
-    "Rachis lombaire": ["ODI (Oswestry)","Roland-Morris","Quebec Back Pain","FABQ","Autre"],
-    [headNeckTitle]: ["SCAT6","Neck Disability Index (NDI)","Copenhagen Neck Functional Scale","Autre"]
+    'Genou': ['KOOS','IKDC','Lysholm','Tegner','ACL-RSI','KOS-ADLS','LEFS','Autre'],
+    'Hanche': ['HAGOS','iHOT-12','HOOS','HOS','Autre'],
+    'Épaule': ['QuickDASH','DASH','SIRSI','ASES','SPADI','Oxford Shoulder Score','Autre'],
+    'Coude': ['Oxford Elbow Score','MEPS','DASH','QuickDASH','Autre'],
+    'Poignet / Main': ['PRWE','DASH','QuickDASH','Boston Carpal Tunnel','Autre'],
+    'Cheville / Pied': ['CAIT','FAAM-ADL','FAAM-Sport','FAOS','FFI','Autre'],
+    'Rachis lombaire': ['ODI (Oswestry)','Roland-Morris','Quebec Back Pain','FABQ','Autre'],
+    [headNeck]: ['SCAT6','Neck Disability Index (NDI)','Copenhagen Neck Functional Scale','Autre']
   };
 
-  // Tests force par muscle (sans isocinétique en "tests spécifiques" pour éviter les doublons)
+  // tests force par groupes musculaires (sans doublons "isocinétique" ici – géré via Outils)
   const testsByMuscle = {
-    // Genou
-    "Ischiojambiers": ["McCall 90°","Isométrie 30°","Nordic","Nordic Hold","Razor Curl","Single Leg Bridge","Autre"],
-    "Quadriceps": ["Isométrie 60°","Leg Extension","Single Leg Squat","Autre"],
-
-    // Hanche
-    "Fléchisseurs hanche": ["Isométrique 45°","Straight Leg Raise (force)","Autre"],
-    "Abducteurs hanche": ["Side-lying isométrique","Standing belt test","Autre"],
-    "Adducteurs hanche": ["Squeeze test (5s)","Copenhagen","Autre"],
-
-    // Cheville
-    "Gastrocnémien": ["Heel Raise – genou tendu (1RM)","Heel Raise – max reps","Isométrie 90°","Autre"],
-    "Soléaire": ["Heel Raise – genou fléchi (1RM)","Max reps","Isométrie 90°","Autre"],
-    "Inverseurs/Éverseurs": ["Dynamométrie manuelle","Dynamométrie fixe","Autre"],
-    "Intrinsèques du pied": ["Toe Curl test","Short Foot test","Dynamométrie","Plateforme de pressions","Autre"]
+    'Ischiojambiers': ['McCall 90°','Isométrie 30°','Nordic','Nordic Hold','Razor Curl','Single Leg Bridge','Autre'],
+    'Quadriceps': ['Isométrie 60°','Leg Extension','Single Leg Squat','Autre'],
+    'Fléchisseurs hanche': ['Isométrique 45°','Straight Leg Raise (force)','Autre'],
+    'Abducteurs hanche': ['Side-lying isométrique','Standing belt test','Autre'],
+    'Adducteurs hanche': ['Squeeze test (5s)','Copenhagen','Autre'],
+    'Gastrocnémien': ['Heel Raise – genou tendu (1RM)','Heel Raise – max reps','Isométrie 90°','Autre'],
+    'Soléaire': ['Heel Raise – genou fléchi (1RM)','Max reps','Isométrie 90°','Autre'],
+    'Inverseurs/Éverseurs': ['Dynamométrie manuelle','Dynamométrie fixe','Autre'],
+    'Intrinsèques du pied': ['Toe Curl test','Short Foot test','Dynamométrie','Plateforme de pressions','Autre']
   };
 
-  // ====== Helpers ======
-  const slug = s => (s||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-");
-  const cssEscape = id => (id||"").replace(/([ #;?%&,.+*~\':"!^$[\]()=>|/@])/g,'\\$1');
+  const isokineticSpeeds = ['30°/s','60°/s','120°/s','180°/s','Autre'];
+  const isokineticModes = ['Concentrique','Excentrique','Isométrique','Combiné'];
 
-  function uniqueOtherIn(groupEl, placeholder="Précisez") {
-    const labels = [...groupEl.querySelectorAll("label")];
-    const others = labels.filter(l => /(^|\s)autre\b/i.test((l.textContent||"").trim()));
-    // garder un seul "Autre"
-    others.slice(1).forEach(l => l.remove());
-    // brancher la gestion du champ texte obligatoire
-    const otherCb = groupEl.querySelector("input[type='checkbox'][value='Autre'],input[type='radio'][value='Autre']");
-    if (otherCb) otherCb.addEventListener("change", () => addOtherField(groupEl, otherCb, placeholder));
-  }
+  // util
+  const slug = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-');
 
-  function addOtherField(container, inputEl, placeholder="Précisez") {
-    let wrap = container.querySelector(".other-wrapper");
-    if (inputEl.checked) {
-      if (!wrap) {
-        wrap = document.createElement("div");
-        wrap.className = "other-wrapper slide show";
-        wrap.innerHTML = `<input type="text" class="other-input" placeholder="${placeholder}" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:6px;">`;
-        container.appendChild(wrap);
-      }
-    } else if (wrap) {
-      wrap.classList.remove("show");
-      setTimeout(() => wrap.remove(), 200);
-    }
-  }
-
-  function enforceOtherEverywhere(scope) {
-    scope.querySelectorAll(".checkbox-group").forEach(g => {
-      uniqueOtherIn(g);
-    });
-  }
-
-  function hasUncheckedOther(scope) {
-    const checkedOthers = scope.querySelectorAll("input[value='Autre']:checked");
-    for (const cb of checkedOthers) {
-      const grp = cb.closest(".checkbox-group");
-      const txt = grp && grp.querySelector(".other-input");
-      if (!txt || !txt.value.trim()) return true;
-    }
-    return false;
-  }
-
-  function addFrequencyOther(sectionEl) {
-    const freqGroup = sectionEl.querySelector(".moment");
-    if (!freqGroup) return;
-    const other = freqGroup.querySelector("input[value='Autre fréquence']");
-    if (!other) return;
-    other.addEventListener("change", () => addOtherField(freqGroup, other, "Fréquence (précisez)"));
-  }
-
-  function ensureRadioOtherWithText(container) {
-    const radioOther = container.querySelector("input[type='radio'][value='Autre']");
-    if (radioOther) {
-      radioOther.addEventListener("change", () => addOtherField(radioOther.closest(".checkbox-group") || container, radioOther, "Précisez"));
-      const radios = container.querySelectorAll("input[type='radio']:not([value='Autre'])");
-      radios.forEach(r => r.addEventListener("change", () => {
-        const wrap = container.querySelector(".other-wrapper"); if (wrap) wrap.remove();
-      }));
-    }
-  }
-
-  // ====== Fusion Tête + Rachis cervical ======
-  function getZoneKey(zoneName) {
-    return headNeckPair.includes(zoneName) ? headNeckTitle : zoneName;
-  }
-  function anyHeadNeckChecked() {
-    return [...zonesCheckboxes].some(z => headNeckPair.includes(z.value) && z.checked);
-  }
-
-  // ====== Gestion zones cochées ======
-  zonesCheckboxes.forEach(zone => {
-    zone.addEventListener("change", () => {
-      const key = getZoneKey(zone.value);
-      if (headNeckPair.includes(zone.value)) {
-        if (anyHeadNeckChecked()) {
-          if (!document.getElementById(`section-${slug(headNeckTitle)}`)) createZoneSection(headNeckTitle);
-        } else {
-          removeZoneSection(headNeckTitle);
-        }
+  function addOtherInputAfter(checkbox, placeholder='Précisez'){
+    const group = checkbox.closest('.checkbox-group') || checkbox.parentElement;
+    let wrap = group.nextElementSibling;
+    // unique per group by data-flag
+    if (checkbox.checked){
+      if (!wrap || !wrap.classList.contains('other-wrap')){
+        wrap = document.createElement('div');
+        wrap.className = 'slide show other-wrap';
+        wrap.innerHTML = `<input type="text" class="other-input" placeholder="${placeholder}" required>`;
+        group.insertAdjacentElement('afterend', wrap);
       } else {
-        if (zone.checked) createZoneSection(key);
-        else removeZoneSection(key);
+        wrap.classList.add('show');
+        const inp = wrap.querySelector('input'); if (inp) inp.setAttribute('required','required');
       }
-      toggleGlobalSections();
-      updateProgress();
+    } else if (wrap && wrap.classList.contains('other-wrap')) {
+      const inp = wrap.querySelector('input');
+      if (inp){ inp.removeAttribute('required'); inp.value=''; }
+      wrap.classList.remove('show');
+    }
+  }
+
+  function attachOtherLogic(scope){
+    scope.querySelectorAll('input[type="checkbox"],input[type="radio"]').forEach(inp=>{
+      const val = (inp.value||'').toLowerCase();
+      if (val === 'autre' || val.includes('autre')){
+        inp.addEventListener('change', ()=> addOtherInputAfter(inp, 'Précisez'));
+      }
+      if (val === 'autres'){
+        inp.addEventListener('change', ()=> addOtherInputAfter(inp, 'Précisez'));
+      }
     });
-  });
-
-  // ====== Blocs globaux (gating Oui/Non) ======
-  function yesNoGateHtml(qId, label) {
-    return `
-      <div class="checkbox-group">
-        <label><input type="radio" name="${qId}" value="Oui"> Oui</label>
-        <label><input type="radio" name="${qId}" value="Non"> Non</label>
-      </div>
-    `;
   }
 
-  function toggleGlobalSections() {
-    const selected = [...zonesCheckboxes].filter(z => z.checked).map(z => z.value);
-    const hasLower = selected.some(z => lowerBodyZones.includes(z));
-    const hasUpper = selected.some(z => upperBodyZones.includes(z));
-    const hasHead = selected.some(z => headNeckPair.includes(z));
-
-    // Tests de sauts (MI) – gating Oui/Non
-    if (hasLower) {
-      if (!globalJumps.dataset.ready) {
-        globalJumps.dataset.ready = "1";
-        globalJumps.style.display = "";
-        globalJumps.classList.add("fade-in","active");
-        globalJumps.innerHTML = `
-          <h3>Tests de sauts</h3>
-          <p>Effectuez-vous des tests de sauts ?</p>
-          ${yesNoGateHtml("gate-jumps","Tests de sauts")}
-          <div class="slide" id="jumps-body">
-            <label>Quels tests de sauts utilisez-vous ?</label>
-            <div class="checkbox-group">
-              <label><input type="checkbox" value="CMJ"> CMJ</label>
-              <label><input type="checkbox" value="Squat Jump"> Squat Jump</label>
-              <label><input type="checkbox" value="Drop Jump"> Drop Jump</label>
-              <label><input type="checkbox" value="Broad Jump"> Broad Jump</label>
-              <label><input type="checkbox" value="Single Hop"> Single Hop</label>
-              <label><input type="checkbox" value="Triple Hop"> Triple Hop</label>
-              <label><input type="checkbox" value="Side Hop"> Side Hop</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-            <label>Paramètres étudiés</label>
-            <div class="checkbox-group">
-              <label><input type="checkbox" value="Force max"> Force max</label>
-              <label><input type="checkbox" value="Hauteur"> Hauteur</label>
-              <label><input type="checkbox" value="Temps de vol"> Temps de vol</label>
-              <label><input type="checkbox" value="Pic de puissance"> Pic de puissance</label>
-              <label><input type="checkbox" value="Puissance relative"> Puissance relative</label>
-              <label><input type="checkbox" value="RFD"> RFD</label>
-              <label><input type="checkbox" value="RSI"> RSI</label>
-              <label><input type="checkbox" value="Distance"> Distance</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-            <label>Outils</label>
-            <div class="checkbox-group jump-tools">
-              <label><input type="checkbox" value="Plateforme de force"> Plateforme de force</label>
-              <label><input type="checkbox" value="Centimétrie"> Centimétrie</label>
-              <label><input type="checkbox" value="Sans outil"> Sans outil</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-            <label>Critères d’évaluation</label>
-            <div class="checkbox-group">
-              <label><input type="checkbox" value="Comparaison droite/gauche"> Comparaison droite/gauche</label>
-              <label><input type="checkbox" value="Valeur de référence individuelle"> Valeur de référence individuelle</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-          </div>
-        `;
-        enforceOtherEverywhere(globalJumps);
-        const radios = globalJumps.querySelectorAll("input[name='gate-jumps']");
-        const body = globalJumps.querySelector("#jumps-body");
-        radios.forEach(r => r.addEventListener("change", () => {
-          if (r.value === "Oui" && r.checked) { body.classList.add("show"); }
-          if (r.value === "Non" && r.checked) { body.classList.remove("show"); }
-        }));
-      }
-    } else {
-      globalJumps.style.display = "none";
-      globalJumps.innerHTML = "";
-      delete globalJumps.dataset.ready;
-    }
-
-    // Tests de course (MI OU tête/rachis) – gating Oui/Non
-    if (hasLower || hasHead) {
-      if (!globalCourse.dataset.ready) {
-        globalCourse.dataset.ready = "1";
-        globalCourse.style.display = "";
-        globalCourse.classList.add("fade-in","active");
-        globalCourse.innerHTML = `
-          <h3>Tests de course</h3>
-          <p>Effectuez-vous des tests de course ?</p>
-          ${yesNoGateHtml("gate-course","Tests de course")}
-          <div class="slide" id="course-body">
-            <h4>Tests Énergétiques</h4>
-            <div class="checkbox-group energetic-tests">
-              <label><input type="checkbox" value="Yoyo"> Yoyo</label>
-              <label><input type="checkbox" value="IR test"> IR test</label>
-              <label><input type="checkbox" value="30-15 IFT"> 30-15 IFT</label>
-              <label><input type="checkbox" value="MAS test"> MAS test</label>
-              <label><input type="checkbox" value="Bronco"> Bronco</label>
-              <label><input type="checkbox" value="Shuttle test"> Shuttle test</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-
-            <h4>Tests de Vitesse</h4>
-            <div class="checkbox-group speed-tests">
-              <label><input type="checkbox" value="Sprint 10m"> Sprint 10m</label>
-              <label><input type="checkbox" value="Sprint 20m"> Sprint 20m</label>
-              <label><input type="checkbox" value="Sprint 30m"> Sprint 30m</label>
-              <label><input type="checkbox" value="Vmax"> Vmax</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-
-            <h4>Tests de Changement de Direction (COD)</h4>
-            <div class="checkbox-group cod-tests">
-              <label><input type="checkbox" value="505"> 505</label>
-              <label><input type="checkbox" value="T-Test"> T-Test</label>
-              <label><input type="checkbox" value="Illinois"> Illinois</label>
-              <label><input type="checkbox" value="RSA"> RSA</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-
-            <label>Outils</label>
-            <div class="checkbox-group course-tools">
-              <label><input type="checkbox" value="Chronomètre"> Chronomètre</label>
-              <label><input type="checkbox" value="Cellules"> Cellules</label>
-              <label><input type="checkbox" value="GPS"> GPS</label>
-              <label><input type="checkbox" value="1080 Sprint"> 1080 Sprint</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-
-            <label>Critères d’évaluation</label>
-            <div class="checkbox-group">
-              <label><input type="checkbox" value="Moyenne par poste"> Moyenne par poste</label>
-              <label><input type="checkbox" value="Valeur de référence individuelle"> Valeur de référence individuelle</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-          </div>
-        `;
-        enforceOtherEverywhere(globalCourse);
-        const radios = globalCourse.querySelectorAll("input[name='gate-course']");
-        const body = globalCourse.querySelector("#course-body");
-        radios.forEach(r => r.addEventListener("change", () => {
-          if (r.value === "Oui" && r.checked) { body.classList.add("show"); }
-          if (r.value === "Non" && r.checked) { body.classList.remove("show"); }
-        }));
-      }
-    } else {
-      globalCourse.style.display = "none";
-      globalCourse.innerHTML = "";
-      delete globalCourse.dataset.ready;
-    }
-
-    // Tests globaux MS (si upper coché) – gating
-    if (hasUpper) {
-      if (!globalMS.dataset.ready) {
-        globalMS.dataset.ready = "1";
-        globalMS.style.display = "";
-        globalMS.classList.add("fade-in","active");
-        globalMS.innerHTML = `
-          <h3>Tests fonctionnels globaux – Membre supérieur</h3>
-          <p>Effectuez-vous des tests fonctionnels globaux du membre supérieur ?</p>
-          ${yesNoGateHtml("gate-ms","Tests globaux MS")}
-          <div class="slide" id="ms-body">
-            <label>Quels tests ?</label>
-            <div class="checkbox-group">
-              <label><input type="checkbox" value="Traction"> Traction</label>
-              <label><input type="checkbox" value="Développé couché"> Développé couché</label>
-              <label><input type="checkbox" value="Tirage"> Tirage</label>
-              <label><input type="checkbox" value="Force grip"> Force grip</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-
-            <label>Outils</label>
-            <div class="checkbox-group">
-              ${encoderTools.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
-            </div>
-
-            <label>Paramètres étudiés</label>
-            <div class="checkbox-group">
-              ${paramsGlobalMS.map(p => `<label><input type="checkbox" value="${p}"> ${p}</label>`).join("")}
-            </div>
-
-            <label>Critères d’évaluation</label>
-            <div class="checkbox-group">
-              <label><input type="checkbox" value="Moyenne du groupe"> Moyenne du groupe</label>
-              <label><input type="checkbox" value="Ratio / poids du corps"> Ratio / poids du corps</label>
-              <label><input type="checkbox" value="Valeur de référence individuelle"> Valeur de référence individuelle</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-          </div>
-        `;
-        enforceOtherEverywhere(globalMS);
-        const radios = globalMS.querySelectorAll("input[name='gate-ms']");
-        const body = globalMS.querySelector("#ms-body");
-        radios.forEach(r => r.addEventListener("change", () => {
-          if (r.value === "Oui" && r.checked) { body.classList.add("show"); }
-          if (r.value === "Non" && r.checked) { body.classList.remove("show"); }
-        }));
-      }
-    } else {
-      globalMS.style.display = "none";
-      globalMS.innerHTML = "";
-      delete globalMS.dataset.ready;
-    }
-
-    // Tests globaux MI (si lower coché) – gating
-    if (hasLower) {
-      if (!globalMI.dataset.ready) {
-        globalMI.dataset.ready = "1";
-        globalMI.style.display = "";
-        globalMI.classList.add("fade-in","active");
-        globalMI.innerHTML = `
-          <h3>Tests fonctionnels globaux – Membre inférieur</h3>
-          <p>Effectuez-vous des tests fonctionnels globaux du membre inférieur ?</p>
-          ${yesNoGateHtml("gate-mi","Tests globaux MI")}
-          <div class="slide" id="mi-body">
-            <label>Quels tests ?</label>
-            <div class="checkbox-group">
-              <label><input type="checkbox" value="Squat"> Squat</label>
-              <label><input type="checkbox" value="Montée de banc"> Montée de banc</label>
-              <label><input type="checkbox" value="Soulevé de terre"> Soulevé de terre</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-
-            <label>Outils</label>
-            <div class="checkbox-group">
-              ${encoderTools.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
-            </div>
-
-            <label>Paramètres étudiés</label>
-            <div class="checkbox-group">
-              ${paramsGlobalMI.map(p => `<label><input type="checkbox" value="${p}"> ${p}</label>`).join("")}
-            </div>
-
-            <label>Critères d’évaluation</label>
-            <div class="checkbox-group">
-              <label><input type="checkbox" value="Moyenne du groupe"> Moyenne du groupe</label>
-              <label><input type="checkbox" value="Ratio / poids du corps"> Ratio / poids du corps</label>
-              <label><input type="checkbox" value="Valeur de référence individuelle"> Valeur de référence individuelle</label>
-              <label><input type="checkbox" value="Autre"> Autre</label>
-            </div>
-          </div>
-        `;
-        enforceOtherEverywhere(globalMI);
-        const radios = globalMI.querySelectorAll("input[name='gate-mi']");
-        const body = globalMI.querySelector("#mi-body");
-        radios.forEach(r => r.addEventListener("change", () => {
-          if (r.value === "Oui" && r.checked) { body.classList.add("show"); }
-          if (r.value === "Non" && r.checked) { body.classList.remove("show"); }
-        }));
-      }
-    } else {
-      globalMI.style.display = "none";
-      globalMI.innerHTML = "";
-      delete globalMI.dataset.ready;
-    }
+  function attachIsokineticHandlers(scope){
+    scope.querySelectorAll('.tools-group').forEach(group => {
+      const iso = group.querySelector('input[type="checkbox"][value="Isocinétisme"]');
+      if (!iso) return;
+      const ensure = () => {
+        let sub = group.parentElement.querySelector('.isokinetic-sub');
+        if (iso.checked){
+          if (!sub){
+            sub = document.createElement('div');
+            sub.className = 'slide show isokinetic-sub';
+            sub.innerHTML = `
+              <label>Vitesse (isocinétisme)</label>
+              <div class="checkbox-group iso-speed">
+                ${isokineticSpeeds.map(v=>`<label><input type="checkbox" value="${v}"> ${v}</label>`).join('')}
+              </div>
+              <label>Mode de contraction (isocinétisme)</label>
+              <div class="checkbox-group iso-mode">
+                ${isokineticModes.map(v=>`<label><input type="checkbox" value="${v}"> ${v}</label>`).join('')}
+              </div>
+            `;
+            group.insertAdjacentElement('afterend', sub);
+            attachOtherLogic(sub);
+          }
+        } else if (sub){
+          sub.classList.remove('show');
+          setTimeout(()=> sub.remove(), 250);
+        }
+      };
+      iso.addEventListener('change', ensure);
+      ensure();
+    });
   }
 
-  // ====== Création / suppression section par zone ======
-  function createZoneSection(zoneName) {
-    if (document.getElementById(`section-${slug(zoneName)}`)) return;
-    const section = document.createElement("div");
-    section.className = "subcard fade-in";
-    section.id = `section-${slug(zoneName)}`;
-    const isHeadNeck = (zoneName === headNeckTitle);
-
-    section.innerHTML = `
+  // ---- Création section par zone
+  function createZoneSection(zoneName){
+    const id = 'zone-' + slug(zoneName);
+    if ($('#'+id)) return;
+    const card = document.createElement('div');
+    card.className = 'subcard';
+    card.id = id;
+    card.innerHTML = `
       <h3>${zoneName}</h3>
-
       <label>À quel moment testez-vous cette zone ?</label>
       <div class="checkbox-group moment">
         <label><input type="checkbox" value="Pré-saison"> Pré-saison</label>
-        <label><input type="checkbox" value="Retour au jeu"> Retour au jeu</label>
-        <label><input type="checkbox" value="Autre fréquence"> Autre fréquence</label>
+        <label><input type="checkbox" value="Retour au jeu" class="retour"> Retour au jeu</label>
+        <label><input type="checkbox" value="Autre fréquence" class="freq-autre"> Autre fréquence</label>
       </div>
+      <div class="slide" id="${id}-freq-autre"><input type="text" placeholder="Fréquence (précisez)" class="other-input"></div>
 
       <label>Quels types de tests sont réalisés ?</label>
       <div class="checkbox-group types">
@@ -495,211 +203,117 @@ document.addEventListener("DOMContentLoaded", () => {
         <label><input type="checkbox" value="Mobilité"> Mobilité</label>
         <label><input type="checkbox" value="Proprioception / Équilibre"> Proprioception / Équilibre</label>
         <label><input type="checkbox" value="Questionnaires"> Questionnaires</label>
-        ${isHeadNeck ? `<label><input type="checkbox" value="Test de cognition"> Test de cognition</label>` : ``}
+        ${zoneName===headNeck ? `<label><input type="checkbox" value="Test de cognition"> Test de cognition</label>`:''}
         <label><input type="checkbox" value="Autres données"> Autres données</label>
       </div>
-
-      <div class="subquestions"></div>
+      <div class="zone-sub"></div>
+      <div class="zone-globals-anchor"></div>
     `;
-    zoneQuestionsContainer.appendChild(section);
+    zoneContainer.appendChild(card);
 
-    addFrequencyOther(section);
-    enforceOtherEverywhere(section);
+    // autre fréquence
+    const freqAutre = card.querySelector('.freq-autre');
+    const freqWrap = $('#'+id+'-freq-autre');
+    freqAutre.addEventListener('change', ()=>{
+      if (freqAutre.checked){ freqWrap.classList.add('show'); freqWrap.querySelector('input').setAttribute('required','required'); }
+      else { freqWrap.classList.remove('show'); const i=freqWrap.querySelector('input'); i.removeAttribute('required'); i.value=''; }
+    });
 
-    const typeCbs = section.querySelectorAll(".types input[type='checkbox']");
-    const subQ = section.querySelector(".subquestions");
-
-    typeCbs.forEach((cb, i) => {
-      cb.addEventListener("change", () => {
-        const sid = `sub-${slug(zoneName)}-${slug(cb.value)}`;
-        const existing = subQ.querySelector(`#${cssEscape(sid)}`);
-        if (cb.checked) {
-          let sub = null;
-          if (cb.value === "Force") sub = createForceBlock(zoneName, sid, i);
-          if (cb.value === "Mobilité") sub = createMobilityBlock(zoneName, sid, i);
-          if (cb.value === "Proprioception / Équilibre") sub = createProprioBlock(zoneName, sid, i);
-          if (cb.value === "Questionnaires") sub = createQuestionnaireBlock(zoneName, sid, i);
-          if (cb.value === "Autres données") sub = createOtherDataBlock(zoneName, sid, i);
-          if (cb.value === "Test de cognition") sub = createCognitionBlock(zoneName, sid, i);
-          if (sub) {
-            subQ.appendChild(sub);
-            setTimeout(() => sub.classList.add("show"), 15);
-          }
-        } else if (existing) {
-          existing.classList.remove("show");
-          setTimeout(() => existing.remove(), 250);
+    // types → sous-blocs
+    const sub = card.querySelector('.zone-sub');
+    card.querySelectorAll('.types input').forEach((cb, idx)=>{
+      cb.addEventListener('change', ()=>{
+        const sid = id + '-' + slug(cb.value);
+        const exist = $('#'+sid);
+        if (cb.checked){
+          let block = null;
+          if (cb.value==='Force') block = buildForceBlock(zoneName, sid);
+          else if (cb.value==='Mobilité') block = buildMobilityBlock(zoneName, sid);
+          else if (cb.value==='Proprioception / Équilibre') block = buildProprioBlock(zoneName, sid);
+          else if (cb.value==='Questionnaires') block = buildQuestionnairesBlock(zoneName, sid);
+          else if (cb.value==='Test de cognition') block = buildCognitionBlock(sid);
+          else if (cb.value==='Autres données') block = buildOtherDataBlock(zoneName, sid);
+          if (block){ sub.appendChild(block); setTimeout(()=> block.classList.add('show'), 20); }
+        } else if (exist){
+          exist.classList.remove('show');
+          setTimeout(()=> exist.remove(), 250);
         }
+        refreshGlobalsVisibility();
       });
     });
+
+    // Retour au jeu → peut déclencher “Combat” global après Course
+    card.querySelectorAll('.moment .retour').forEach(r=> r.addEventListener('change', refreshGlobalsVisibility));
+
+    attachOtherLogic(card);
   }
 
-  function removeZoneSection(zoneName) {
-    const el = document.getElementById(`section-${slug(zoneName)}`);
+  function removeZoneSection(zoneName){
+    const id = 'zone-' + slug(zoneName);
+    const el = $('#'+id);
     if (el) el.remove();
+    refreshGlobalsVisibility();
   }
 
-  // ====== Blocs spécifiques ======
-  function createOtherDataBlock(zoneName, id, delay) {
-    const div = document.createElement("div");
-    div.id = id; div.className = "slide stagger"; div.style.animationDelay = `${delay*0.1}s`;
-    div.innerHTML = `
-      <h4>Autres données – ${zoneName}</h4>
-      <input type="text" class="other-input" placeholder="Précisez la donnée collectée" required
-        style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;">
-    `;
-    return div;
-  }
-
-  function createCognitionBlock(zoneName, id, delay) {
-    const div = document.createElement("div");
-    div.id = id; div.className = "slide stagger"; div.style.animationDelay = `${delay*0.1}s`;
-    div.innerHTML = `
-      <h4>Test de cognition</h4>
-      <div class="checkbox-group">
-        <label><input type="checkbox" value="Test oculaire"> Test oculaire</label>
-        <label><input type="checkbox" value="Test vestibulaire"> Test vestibulaire</label>
-        <label><input type="checkbox" value="Autre"> Autre</label>
-      </div>
-    `;
-    enforceOtherEverywhere(div);
-    return div;
-  }
-
-  function toolsBlockHtml(extra=[]) {
-    // Un seul "Autre" à la fin
-    const base = [...extra];
-    const uniq = (arr) => [...new Set(arr)];
-    const list = uniq(base.concat("Autre"));
-    return `<div class="checkbox-group tools-group">
-      ${list.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
-    </div>`;
-  }
-
-  function paramsBlockHtml(list) {
-    // Ajouter "Autre"
-    const full = list.concat("Autre");
-    return `<div class="checkbox-group">
-      ${full.map(p => `<label><input type="checkbox" value="${p}"> ${p}</label>`).join("")}
-    </div>`;
-  }
-
-  function criteriaBlockHtml(list=criteriaCommon) {
-    const full = list; // contient déjà "Autre"
-    return `<div class="checkbox-group">
-      ${full.map(c => `<label><input type="checkbox" value="${c}"> ${c}</label>`).join("")}
-    </div>`;
-  }
-
-  function attachIsokineticHandlers(scope) {
-    const groups = scope.querySelectorAll(".tools-group");
-    groups.forEach(group => {
-      const iso = group.querySelector("input[value='Isocinétisme']");
-      if (!iso) return;
-      const ensure = () => {
-        let sub = group.parentElement.querySelector(".isokinetic-sub");
-        if (iso.checked) {
-          if (!sub) {
-            sub = document.createElement("div");
-            sub.className = "slide show isokinetic-sub";
-            sub.innerHTML = `
-              <label>Vitesse (isocinétisme)</label>
-              <div class="checkbox-group iso-speed">
-                ${isokineticSpeeds.map(v => `<label><input type="checkbox" value="${v}"> ${v}</label>`).join("")}
-              </div>
-              <label>Mode de contraction (isocinétisme)</label>
-              <div class="checkbox-group iso-mode">
-                ${isokineticModes.map(m => `<label><input type="checkbox" value="${m}"> ${m}</label>`).join("")}
-              </div>
-            `;
-            group.insertAdjacentElement("afterend", sub);
-            enforceOtherEverywhere(sub);
-          }
-        } else if (sub) {
-          sub.classList.remove("show");
-          setTimeout(() => sub.remove(), 250);
-        }
-      };
-      iso.addEventListener("change", ensure);
-      ensure();
+  zones.forEach(z=>{
+    z.addEventListener('change', ()=>{
+      if (z.checked) createZoneSection(z.value);
+      else removeZoneSection(z.value);
+      refreshGlobalsVisibility();
     });
+  });
+
+  // ---- Sous-blocs par type
+  function uniqueToolsHTML(tools){
+    // supprime doublons et ne laisse "Autre" qu'une seule fois en fin
+    const set = new Set();
+    const list = [];
+    tools.forEach(t => {
+      const k = t.toLowerCase();
+      if (k==='autre') return; // postpone
+      if (!set.has(k)){ set.add(k); list.push(t); }
+    });
+    list.push('Autre');
+    return list.map(t=>`<label><input type="checkbox" value="${t}"> ${t}</label>`).join('');
   }
 
-  function createProprioBlock(zoneName, id, delay) {
-    const div = document.createElement("div");
-    div.id = id; div.className = "slide stagger"; div.style.animationDelay = `${delay*0.1}s`;
-    const list = proprioByZone[zoneName] || ["Autre"];
-    div.innerHTML = `
-      <h4>Proprioception / Équilibre – ${zoneName}</h4>
-      <label>Quels tests utilisez-vous ?</label>
-      <div class="checkbox-group proprio-tests">
-        ${list.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
-      </div>
-      <label>Critères d’évaluation</label>
-      ${criteriaBlockHtml(["Moyenne du groupe","Valeur de référence individuelle","Autre"])}
-    `;
-    enforceOtherEverywhere(div);
-    return div;
-  }
+  function buildForceBlock(zoneName, sid){
+    const block = document.createElement('div');
+    block.className = 'slide subcard';
+    block.id = sid;
 
-  function createQuestionnaireBlock(zoneName, id, delay) {
-    const div = document.createElement("div");
-    div.id = id; div.className = "slide stagger"; div.style.animationDelay = `${delay*0.1}s`;
-    const list = questionnairesByZone[zoneName] || ["Autre"];
-    div.innerHTML = `
-      <h4>Questionnaires – ${zoneName}</h4>
-      <div class="checkbox-group q-list">
-        ${list.map(q => `<label><input type="checkbox" value="${q}"> ${q}</label>`).join("")}
-      </div>
-    `;
-    enforceOtherEverywhere(div);
-    return div;
-  }
-
-  // ====== FORCE (hiérarchie complète) ======
-  function createForceBlock(zoneName, id, delay) {
-    const div = document.createElement("div");
-    div.id = id; div.className = "slide stagger"; div.style.animationDelay = `${delay*0.1}s`;
-
+    // mouvements par zone
     const moves = [];
-    // mouvements communs
-    moves.push("Flexion/Extension");
-    if (!["Genou","Cheville / Pied","Coude","Poignet / Main"].includes(zoneName)) moves.push("Rotations");
-    if (["Épaule","Hanche"].includes(zoneName)) moves.push("Adduction/Abduction");
-    if (zoneName === "Cheville / Pied") {
-      moves.push("Éversion/Inversion");
-      moves.push("Intrinsèques du pied");
-    }
-    if (zoneName === "Rachis lombaire" || zoneName === headNeckTitle) {
-      moves.push("Inclinaisons");
-    }
-    if (zoneName === "Poignet / Main") {
-      moves.push("Inclinaisons");
-    }
-    if (zoneName === "Épaule") moves.push("ASH Test");
+    moves.push('Flexion/Extension');
+    if (!['Genou','Cheville / Pied','Coude','Poignet / Main'].includes(zoneName)) moves.push('Rotations');
+    if (['Épaule','Hanche'].includes(zoneName)) moves.push('Adduction/Abduction');
+    if (zoneName==='Cheville / Pied'){ moves.push('Éversion/Inversion'); moves.push('Intrinsèques du pied'); }
+    if (zoneName==='Rachis lombaire' || zoneName===headNeck) moves.push('Inclinaisons');
+    if (zoneName==='Épaule') moves.push('ASH Test');
 
-    div.innerHTML = `
+    block.innerHTML = `
       <h4>Force – ${zoneName}</h4>
       <label>Quels mouvements évaluez-vous en force ?</label>
       <div class="checkbox-group force-moves">
-        ${moves.map(m => `<label><input type="checkbox" value="${m}"> ${m}</label>`).join("")}
+        ${moves.map(m=>`<label><input type="checkbox" value="${m}"> ${m}</label>`).join('')}
       </div>
-      <div class="force-moves-details"></div>
+      <div class="force-details"></div>
     `;
 
-    const details = div.querySelector(".force-moves-details");
-    div.querySelectorAll(".force-moves input").forEach((mb, i) => {
-      mb.addEventListener("change", () => {
-        const mid = `${id}-move-${slug(mb.value)}`;
-        const existing = details.querySelector(`#${cssEscape(mid)}`);
-        if (mb.checked) {
-          const block = document.createElement("div");
-          block.id = mid; block.className = "slide stagger show";
-          block.style.animationDelay = `${i*0.05}s`;
+    const details = block.querySelector('.force-details');
+    block.querySelectorAll('.force-moves input').forEach((mv,i)=>{
+      mv.addEventListener('change', ()=>{
+        const mid = sid+'-mv-'+slug(mv.value);
+        const ex = $('#'+mid);
+        if (mv.checked){
+          const sub = document.createElement('div');
+          sub.className = 'slide show';
+          sub.id = mid;
 
-          // cas spéciaux par articulation
-          if (zoneName === "Genou" && mb.value === "Flexion/Extension") {
-            block.innerHTML = `
-              <h5>${mb.value}</h5>
+          // cas particuliers (genou / hanche / cheville / épaule ASH / rachis tools)
+          if (zoneName==='Genou' && mv.value==='Flexion/Extension'){
+            sub.innerHTML = `
+              <h5>${mv.value}</h5>
               <label>Groupe musculaire</label>
               <div class="checkbox-group knee-muscles">
                 <label><input type="checkbox" value="Ischiojambiers"> Ischiojambiers</label>
@@ -707,19 +321,22 @@ document.addEventListener("DOMContentLoaded", () => {
               </div>
               <div class="knee-muscles-details"></div>
             `;
-            const dWrap = block.querySelector(".knee-muscles-details");
-            block.querySelectorAll(".knee-muscles input").forEach((mcb, j) => {
-              mcb.addEventListener("change", () => {
-                const gid = `${mid}-${slug(mcb.value)}`;
-                const ex = dWrap.querySelector(`#${cssEscape(gid)}`);
-                if (mcb.checked && !ex) dWrap.appendChild(createMuscleDetailBlock(zoneName, mcb.value, gid, i+j));
-                else if (!mcb.checked && ex) { ex.classList.remove("show"); setTimeout(() => ex.remove(), 200); }
+            const d = sub.querySelector('.knee-muscles-details');
+            sub.querySelectorAll('.knee-muscles input').forEach(kb=>{
+              kb.addEventListener('change', ()=>{
+                const gid = mid+'-'+slug(kb.value);
+                const gx = $('#'+gid);
+                if (kb.checked && !gx){
+                  d.appendChild( buildMuscleForceBlock(zoneName, kb.value, gid) );
+                } else if (!kb.checked && gx){
+                  gx.classList.remove('show'); setTimeout(()=>gx.remove(), 200);
+                }
               });
             });
 
-          } else if (zoneName === "Hanche" && ["Adduction/Abduction","Flexion/Extension"].includes(mb.value)) {
-            block.innerHTML = `
-              <h5>${mb.value}</h5>
+          } else if (zoneName==='Hanche' && ['Adduction/Abduction','Flexion/Extension'].includes(mv.value)){
+            sub.innerHTML = `
+              <h5>${mv.value}</h5>
               <label>Groupe musculaire</label>
               <div class="checkbox-group hip-muscles">
                 <label><input type="checkbox" value="Fléchisseurs hanche"> Fléchisseurs hanche</label>
@@ -728,48 +345,50 @@ document.addEventListener("DOMContentLoaded", () => {
               </div>
               <div class="hip-muscles-details"></div>
             `;
-            const dWrap = block.querySelector(".hip-muscles-details");
-            block.querySelectorAll(".hip-muscles input").forEach((mcb, j) => {
-              mcb.addEventListener("change", () => {
-                const gid = `${mid}-${slug(mcb.value)}`;
-                const ex = dWrap.querySelector(`#${cssEscape(gid)}`);
-                if (mcb.checked && !ex) dWrap.appendChild(createMuscleDetailBlock(zoneName, mcb.value, gid, i+j));
-                else if (!mcb.checked && ex) { ex.classList.remove("show"); setTimeout(() => ex.remove(), 200); }
+            const d = sub.querySelector('.hip-muscles-details');
+            sub.querySelectorAll('.hip-muscles input').forEach(hb=>{
+              hb.addEventListener('change', ()=>{
+                const gid = mid+'-'+slug(hb.value);
+                const gx = $('#'+gid);
+                if (hb.checked && !gx){
+                  d.appendChild( buildMuscleForceBlock(zoneName, hb.value, gid) );
+                } else if (!hb.checked && gx){
+                  gx.classList.remove('show'); setTimeout(()=>gx.remove(), 200);
+                }
               });
             });
 
-          } else if (zoneName === "Cheville / Pied" && (mb.value.includes("Intrinsèques") || mb.value.includes("Éversion/Inversion") || mb.value.includes("Flexion/Extension"))) {
-            if (mb.value.includes("Flexion/Extension")) {
-              block.innerHTML = `
-                <h5>${mb.value}</h5>
-                <label>Groupe musculaire</label>
-                <div class="checkbox-group ankle-muscles">
-                  <label><input type="checkbox" value="Gastrocnémien"> Gastrocnémien</label>
-                  <label><input type="checkbox" value="Soléaire"> Soléaire</label>
-                </div>
-                <div class="ankle-muscles-details"></div>
-              `;
-              const dWrap = block.querySelector(".ankle-muscles-details");
-              block.querySelectorAll(".ankle-muscles input").forEach((mcb, j) => {
-                mcb.addEventListener("change", () => {
-                  const gid = `${mid}-${slug(mcb.value)}`;
-                  const ex = dWrap.querySelector(`#${cssEscape(gid)}`);
-                  if (mcb.checked && !ex) dWrap.appendChild(createMuscleDetailBlock(zoneName, mcb.value, gid, i+j));
-                  else if (!mcb.checked && ex) { ex.classList.remove("show"); setTimeout(() => ex.remove(), 200); }
-                });
+          } else if (zoneName==='Cheville / Pied' && mv.value.includes('Flexion/Extension')){
+            sub.innerHTML = `
+              <h5>${mv.value}</h5>
+              <label>Groupe musculaire</label>
+              <div class="checkbox-group ankle-muscles">
+                <label><input type="checkbox" value="Gastrocnémien"> Gastrocnémien</label>
+                <label><input type="checkbox" value="Soléaire"> Soléaire</label>
+              </div>
+              <div class="ankle-muscles-details"></div>
+            `;
+            const d = sub.querySelector('.ankle-muscles-details');
+            sub.querySelectorAll('.ankle-muscles input').forEach(ab=>{
+              ab.addEventListener('change', ()=>{
+                const gid = mid+'-'+slug(ab.value);
+                const gx = $('#'+gid);
+                if (ab.checked && !gx){
+                  d.appendChild( buildMuscleForceBlock(zoneName, ab.value, gid) );
+                } else if (!ab.checked && gx){
+                  gx.classList.remove('show'); setTimeout(()=>gx.remove(), 200);
+                }
               });
-            } else if (mb.value.includes("Éversion/Inversion")) {
-              const gid = `${mid}-inv-ev`;
-              block.innerHTML = `<h5>${mb.value}</h5><div class="inv-ev-details"></div>`;
-              block.querySelector(".inv-ev-details").appendChild(createMuscleDetailBlock(zoneName, "Inverseurs/Éverseurs", gid, i));
-            } else {
-              const gid = `${mid}-intrinseques`;
-              block.innerHTML = `<h5>Intrinsèques du pied</h5><div class="foot-intr-details"></div>`;
-              block.querySelector(".foot-intr-details").appendChild(createMuscleDetailBlock(zoneName, "Intrinsèques du pied", gid, i));
-            }
+            });
 
-          } else if (zoneName === "Épaule" && mb.value === "ASH Test") {
-            block.innerHTML = `
+          } else if (zoneName==='Cheville / Pied' && mv.value.includes('Intrinsèques')){
+            const gid = mid+'-intrinseques';
+            sub.innerHTML = `<h5>Intrinsèques du pied</h5><div class="foot-intr-details"></div>`;
+            const d = sub.querySelector('.foot-intr-details');
+            d.appendChild( buildMuscleForceBlock(zoneName, 'Intrinsèques du pied', gid) );
+
+          } else if (zoneName==='Épaule' && mv.value==='ASH Test'){
+            sub.innerHTML = `
               <h5>ASH Test</h5>
               <label>Positions</label>
               <div class="checkbox-group">
@@ -779,291 +398,686 @@ document.addEventListener("DOMContentLoaded", () => {
                 <label><input type="checkbox" value="I (0°)"> I (0°)</label>
                 <label><input type="checkbox" value="Autre"> Autre</label>
               </div>
-
               <label>Outils utilisés</label>
-              ${toolsBlockHtml(toolsForceGeneric)}
-
+              <div class="checkbox-group tools-group">
+                ${uniqueToolsHTML(forceTools)}
+              </div>
               <label>Paramètres étudiés</label>
-              ${paramsBlockHtml(paramsForce)}
-
+              <div class="checkbox-group">
+                ${paramsForce.map(p=>`<label><input type="checkbox" value="${p}"> ${p}</label>`).join('')}
+              </div>
               <label>Critères d’évaluation</label>
-              ${criteriaBlockHtml()}
+              <div class="checkbox-group">
+                ${criteriaForce.map(c=>`<label><input type="checkbox" value="${c}"> ${c}</label>`).join('')}
+              </div>
             `;
-            enforceOtherEverywhere(block);
-            attachIsokineticHandlers(block);
+            attachOtherLogic(sub);
+            attachIsokineticHandlers(sub);
 
           } else {
-            block.innerHTML = `
-              <h5>${mb.value}</h5>
-
+            // mouvement générique
+            const extraTools = (zoneName==='Rachis lombaire' && mv.value==='Flexion/Extension')
+              ? ['Test de Shirado','Test de Sorensen']
+              : [];
+            sub.innerHTML = `
+              <h5>${mv.value}</h5>
               <label>Outils utilisés</label>
-              ${toolsBlockHtml(toolsForceGeneric.concat(
-                (zoneName==="Rachis lombaire" && mb.value==="Flexion/Extension") ? ["Test de Shirado","Test de Sorensen"] : []
-              ))}
-
+              <div class="checkbox-group tools-group">
+                ${uniqueToolsHTML(forceTools.concat(extraTools))}
+              </div>
               <label>Paramètres étudiés</label>
-              ${paramsBlockHtml(paramsForce)}
-
+              <div class="checkbox-group">
+                ${paramsForce.map(p=>`<label><input type="checkbox" value="${p}"> ${p}</label>`).join('')}
+              </div>
               <label>Critères d’évaluation</label>
-              ${criteriaBlockHtml()}
+              <div class="checkbox-group">
+                ${criteriaForce.map(c=>`<label><input type="checkbox" value="${c}"> ${c}</label>`).join('')}
+              </div>
             `;
-            enforceOtherEverywhere(block);
-            attachIsokineticHandlers(block);
+            attachOtherLogic(sub);
+            attachIsokineticHandlers(sub);
           }
 
-          details.appendChild(block);
-        } else if (existing) {
-          existing.classList.remove("show");
-          setTimeout(() => existing.remove(), 200);
+          details.appendChild(sub);
+        } else if (ex){
+          ex.classList.remove('show'); setTimeout(()=> ex.remove(), 200);
         }
       });
     });
 
-    return div;
+    return block;
   }
 
-  function createMuscleDetailBlock(zoneName, muscleLabel, gid, delay) {
-    const wrap = document.createElement("div");
-    wrap.id = gid; wrap.className = "slide stagger show";
-    wrap.style.animationDelay = `${delay*0.05}s`;
+  function buildMuscleForceBlock(zoneName, muscleLabel, gid){
+    const w = document.createElement('div');
+    w.className = 'slide show subcard';
+    w.id = gid;
 
-    const testList = testsByMuscle[muscleLabel] || ["Autre"];
-
-    wrap.innerHTML = `
-      <h5 style="margin-top:10px">${muscleLabel}</h5>
-
+    const tests = (testsByMuscle[muscleLabel] || ['Autre']).filter(t => !/^Isocin[ée]t/i.test(t)); // pas de tests "isocinétiques" ici
+    w.innerHTML = `
+      <h5 style="margin-top:8px">${muscleLabel}</h5>
       <label>Outils utilisés</label>
-      ${toolsBlockHtml(toolsForceGeneric)}
-
+      <div class="checkbox-group tools-group">
+        ${uniqueToolsHTML(forceTools)}
+      </div>
       <label>Tests spécifiques</label>
       <div class="checkbox-group muscle-tests">
-        ${testList.map(t => `<label><input type="checkbox" value="${t}"> ${t}</label>`).join("")}
+        ${tests.map(t=>`<label><input type="checkbox" value="${t}"> ${t}</label>`).join('')}
         <label><input type="checkbox" value="Autre"> Autre</label>
       </div>
-
       <label>Paramètres étudiés</label>
-      ${paramsBlockHtml(paramsForce)}
-
+      <div class="checkbox-group">
+        ${['Force max (N)','Force moyenne (N)','Force relative (N/kg)','RFD (Rate of Force Development)','Angle du pic de force (°)','Endurance'].map(p=>`<label><input type="checkbox" value="${p}"> ${p}</label>`).join('')}
+      </div>
       <label>Critères d’évaluation</label>
-      ${criteriaBlockHtml()}
+      <div class="checkbox-group">
+        ${['Ratio agoniste/antagoniste','Ratio droite/gauche','Valeur de référence individuelle','Autre'].map(c=>`<label><input type="checkbox" value="${c}"> ${c}</label>`).join('')}
+      </div>
     `;
-    enforceOtherEverywhere(wrap);
-    attachIsokineticHandlers(wrap);
-    return wrap;
+    attachOtherLogic(w);
+    attachIsokineticHandlers(w);
+    return w;
   }
 
-  // ====== MOBILITÉ ======
-  function createMobilityBlock(zoneName, id, delay) {
-    const div = document.createElement("div");
-    div.id = id; div.className = "slide stagger"; div.style.animationDelay = `${delay*0.1}s`;
-
+  function buildMobilityBlock(zoneName, sid){
+    const block = document.createElement('div');
+    block.className = 'slide subcard';
+    block.id = sid;
     const moves = [];
-    moves.push("Flexion/Extension");
-    if (!["Genou","Cheville / Pied","Coude","Poignet / Main"].includes(zoneName)) moves.push("Rotations");
-    if (["Épaule","Hanche"].includes(zoneName)) moves.push("Adduction/Abduction");
-    if (zoneName === "Cheville / Pied") moves.push("Éversion/Inversion");
-    if (zoneName === "Rachis lombaire" || zoneName === headNeckTitle || zoneName === "Poignet / Main") moves.push("Inclinaisons");
+    moves.push('Flexion/Extension');
+    if (!['Genou','Cheville / Pied','Coude','Poignet / Main'].includes(zoneName)) moves.push('Rotations');
+    if (['Épaule','Hanche'].includes(zoneName)) moves.push('Adduction/Abduction');
+    if (zoneName==='Cheville / Pied'){ moves.push('Éversion/Inversion'); }
+    if (zoneName==='Rachis lombaire' || zoneName===headNeck) moves.push('Inclinaisons');
+    if (zoneName==='Poignet / Main') moves.push('Inclinaisons'); // ajouté
 
-    div.innerHTML = `
+    block.innerHTML = `
       <h4>Mobilité – ${zoneName}</h4>
       <label>Quels mouvements évaluez-vous en mobilité ?</label>
       <div class="checkbox-group mob-moves">
-        ${moves.map(m => `<label><input type="checkbox" value="${m}"> ${m}</label>`).join("")}
+        ${moves.map(m=>`<label><input type="checkbox" value="${m}"> ${m}</label>`).join('')}
       </div>
-      <div class="mob-moves-details"></div>
+      <div class="mob-details"></div>
     `;
+    const details = block.querySelector('.mob-details');
 
-    const details = div.querySelector(".mob-moves-details");
-    div.querySelectorAll(".mob-moves input").forEach((mb, i) => {
-      mb.addEventListener("change", () => {
-        const mid = `${id}-move-${slug(mb.value)}`;
-        const existing = details.querySelector(`#${cssEscape(mid)}`);
-        if (mb.checked) {
-          const block = document.createElement("div");
-          block.id = mid; block.className = "slide stagger show";
-          block.style.animationDelay = `${i*0.05}s`;
+    block.querySelectorAll('.mob-moves input').forEach((mv)=>{
+      mv.addEventListener('change', ()=>{
+        const mid = sid+'-mv-'+slug(mv.value);
+        const ex = $('#'+mid);
+        if (mv.checked){
+          const sub = document.createElement('div');
+          sub.className = 'slide show';
+          sub.id = mid;
 
-          let tools = [...toolsMobilityGeneric];
-          if ((zoneName==="Genou" && mb.value==="Flexion/Extension") || zoneName==="Rachis lombaire") {
-            tools.push("Sit-and-reach");
+          let tools = mobilityToolsBase.slice();
+          // outils spé
+          if ((zoneName==='Genou' && mv.value==='Flexion/Extension') || zoneName==='Rachis lombaire'){
+            tools = tools.concat(['Sit-and-reach']);
           }
-          if (zoneName==="Cheville / Pied" && /flexion/i.test(mb.value)) {
-            tools.push("Knee-to-wall (KTW)");
+          if (zoneName==='Cheville / Pied' && mv.value.toLowerCase().includes('flexion')){
+            tools = tools.concat(['Knee-to-wall (KTW)']);
           }
-          if (zoneName==="Rachis lombaire" && mb.value==="Inclinaisons") {
-            tools.push("Distance doigt-sol");
+          // pour lombaire inclinaisons : distance doigt-sol (et pas "test spécifique" de base)
+          if (zoneName==='Rachis lombaire' && mv.value==='Inclinaisons'){
+            tools = ['Goniomètre','Inclinomètre','Distance doigt-sol','Autre'];
           }
 
-          const crits = (zoneName==="Rachis lombaire") ? criteriaMobilitySpine : criteriaMobilityGeneric;
+          // critères lombaire vs génériques
+          const crits = (zoneName==='Rachis lombaire') ? criteriaMobilityLumbar : criteriaMobility;
 
-          block.innerHTML = `
-            <h5 style="margin-top:10px">${mb.value}</h5>
+          sub.innerHTML = `
+            <h5>${mv.value}</h5>
             <label>Outils utilisés</label>
-            ${toolsBlockHtml(tools)}
-
+            <div class="checkbox-group">
+              ${uniqueToolsHTML(tools)}
+            </div>
             <label>Critères d’évaluation</label>
-            ${criteriaBlockHtml(crits)}
+            <div class="checkbox-group">
+              ${crits.map(c=>`<label><input type="checkbox" value="${c}"> ${c}</label>`).join('')}
+            </div>
           `;
-          enforceOtherEverywhere(block);
-          details.appendChild(block);
-        } else if (existing) {
-          existing.classList.remove("show");
-          setTimeout(() => existing.remove(), 200);
+          attachOtherLogic(sub);
+          details.appendChild(sub);
+        } else if (ex){
+          ex.classList.remove('show'); setTimeout(()=>ex.remove(), 200);
         }
       });
     });
 
-    return div;
+    return block;
   }
 
-  // ====== VALIDATION & ENVOI GOOGLE FORM ======
-  function validateAll() {
-    // Vérifie que les "Autre" cochés ont un champ précisé
-    for (const scope of [document]) {
-      if (hasUncheckedOther(scope)) return false;
-    }
-    return true;
+  function buildProprioBlock(zoneName, sid){
+    const block = document.createElement('div');
+    block.className = 'slide subcard';
+    block.id = sid;
+    const tests = proprioByZone[zoneName] || ['Autre'];
+    block.innerHTML = `
+      <h4>Proprioception / Équilibre – ${zoneName}</h4>
+      <label>Quels tests utilisez-vous ?</label>
+      <div class="checkbox-group proprio-tests">
+        ${tests.map(t=>`<label><input type="checkbox" value="${t}"> ${t}</label>`).join('')}
+      </div>
+      <label>Critères d’évaluation</label>
+      <div class="checkbox-group">
+        <label><input type="checkbox" value="Moyenne du groupe"> Moyenne du groupe</label>
+        <label><input type="checkbox" value="Valeur de référence individuelle"> Valeur de référence individuelle</label>
+        <label><input type="checkbox" value="Autre"> Autre</label>
+      </div>
+    `;
+    attachOtherLogic(block);
+    return block;
   }
 
-  const GOOGLE_FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSeNok3wNrafUFIM2VnAo4NKQpdZDaDyFDeVS8dZbXFyt_ySyA/formResponse";
-  const GOOGLE_ENTRY_AGGREGATE = "entry.1237244370"; // on sérialise toutes les réponses dans ce champ
-
-  function gatherAnswersAsJSON() {
-    const obj = {};
-
-    // Infos générales
-    const role = document.querySelector("input[name='role']:checked")?.value || "";
-    obj.participant_role = role;
-    const roleOther = document.querySelector("#role .other-input")?.value || "";
-    if (roleOther) obj.participant_role_autre = roleOther;
-
-    const team = document.querySelector("input[name='team']:checked")?.value || "";
-    obj.equipe = team;
-    const teamOther = document.querySelector("#structure .other-input")?.value || "";
-    if (teamOther) obj.equipe_autre = teamOther;
-
-    // Zones
-    obj.zones = [...document.querySelectorAll("#zones input[type='checkbox']:checked")].map(z => z.value);
-
-    // Sections par zone
-    obj.sections = {};
-    const secs = document.querySelectorAll("[id^='section-']");
-    secs.forEach(sec => {
-      const ztitle = sec.querySelector("h3")?.textContent?.trim() || "zone";
-      const z = { moment: [], types: [], details: {} };
-      z.moment = [...sec.querySelectorAll(".moment input:checked")].map(i => i.value + (i.value==="Autre fréquence" ? `: ${sec.querySelector(".moment .other-input")?.value||""}` : ""));
-      z.types = [...sec.querySelectorAll(".types input:checked")].map(i => i.value);
-      // détails
-      sec.querySelectorAll(".subquestions > .slide").forEach(sub => {
-        const h = sub.querySelector("h4")?.textContent?.trim() || "bloc";
-        const key = slug(h);
-        z.details[key] = textFromBlock(sub);
-      });
-      obj.sections[ztitle] = z;
-    });
-
-    // Globaux (sauts / course / MS / MI)
-    const gj = document.getElementById("global-jumps");
-    if (gj?.dataset.ready) {
-      obj.jumps = { enabled: (gj.querySelector("input[name='gate-jumps']:checked")?.value==="Oui") };
-      if (obj.jumps.enabled) obj.jumps.details = textFromBlock(gj.querySelector("#jumps-body"));
-    }
-    const gc = document.getElementById("global-course");
-    if (gc?.dataset.ready) {
-      obj.course = { enabled: (gc.querySelector("input[name='gate-course']:checked")?.value==="Oui") };
-      if (obj.course.enabled) obj.course.details = textFromBlock(gc.querySelector("#course-body"));
-    }
-    const gms = document.getElementById("global-ms");
-    if (gms?.dataset.ready) {
-      obj.globals_ms = { enabled: (gms.querySelector("input[name='gate-ms']:checked")?.value==="Oui") };
-      if (obj.globals_ms.enabled) obj.globals_ms.details = textFromBlock(gms.querySelector("#ms-body"));
-    }
-    const gmi = document.getElementById("global-mi");
-    if (gmi?.dataset.ready) {
-      obj.globals_mi = { enabled: (gmi.querySelector("input[name='gate-mi']:checked")?.value==="Oui") };
-      if (obj.globals_mi.enabled) obj.globals_mi.details = textFromBlock(gmi.querySelector("#mi-body"));
-    }
-
-    // Questions communes
-    const commons = document.getElementById("commonQuestions");
-    if (commons) {
-      obj.barrieres = [...commons.querySelectorAll("input[name='barrieres']:checked")].map(i => i.value);
-      const barOther = commons.querySelector(".checkbox-group input[name='barrieres'][value='Autre']")?.closest(".checkbox-group")?.querySelector(".other-input")?.value;
-      if (barOther) obj.barrieres_autre = barOther;
-
-      obj.raisons = [...commons.querySelectorAll("input[name='raisons']:checked")].map(i => i.value);
-      const raiOther = commons.querySelector(".checkbox-group input[name='raisons'][value='Autre']")?.closest(".checkbox-group")?.querySelector(".other-input")?.value;
-      if (raiOther) obj.raisons_autre = raiOther;
-    }
-
-    return JSON.stringify(obj);
+  function buildQuestionnairesBlock(zoneName, sid){
+    const block = document.createElement('div');
+    block.className = 'slide subcard';
+    block.id = sid;
+    const list = questionnairesByZone[zoneName] || ['Autre'];
+    block.innerHTML = `
+      <h4>Questionnaires – ${zoneName}</h4>
+      <div class="checkbox-group q-list">
+        ${list.map(q=>`<label><input type="checkbox" value="${q}"> ${q}</label>`).join('')}
+      </div>
+      <label>Critères d’évaluation</label>
+      <div class="checkbox-group">
+        <label><input type="checkbox" value="Moyenne du groupe"> Moyenne du groupe</label>
+        <label><input type="checkbox" value="Ratio droite/gauche"> Ratio droite/gauche</label>
+        <label><input type="checkbox" value="Valeur de référence individuelle"> Valeur de référence individuelle</label>
+        <label><input type="checkbox" value="Autre"> Autre</label>
+      </div>
+    `;
+    attachOtherLogic(block);
+    return block;
   }
 
-  function textFromBlock(root) {
-    const out = {};
-    if (!root) return out;
-    const groups = root.querySelectorAll(".checkbox-group");
-    groups.forEach(g => {
-      const titlePrev = g.previousElementSibling;
-      const title = titlePrev && titlePrev.tagName.match(/^H\d|LABEL$/) ? titlePrev.textContent.trim() : "groupe";
-      const vals = [...g.querySelectorAll("input:checked")].map(i => i.value);
-      const otherTxt = g.querySelector(".other-input")?.value;
-      if (otherTxt && vals.some(v => v==="Autre")) {
-        vals[vals.indexOf("Autre")] = `Autre: ${otherTxt}`;
+  function buildCognitionBlock(sid){
+    const block = document.createElement('div');
+    block.className = 'slide subcard';
+    block.id = sid;
+    block.innerHTML = `
+      <h4>Test de cognition</h4>
+      <div class="checkbox-group">
+        <label><input type="checkbox" value="Test oculaire"> Test oculaire</label>
+        <label><input type="checkbox" value="Test vestibulaire"> Test vestibulaire</label>
+        <label><input type="checkbox" value="Autre"> Autre</label>
+      </div>
+    `;
+    attachOtherLogic(block);
+    return block;
+  }
+
+  function buildOtherDataBlock(zoneName, sid){
+    const block = document.createElement('div');
+    block.className = 'slide subcard';
+    block.id = sid;
+    block.innerHTML = `
+      <h4>Autres données – ${zoneName}</h4>
+      <input type="text" class="other-input" placeholder="Précisez la donnée collectée" required>
+    `;
+    return block;
+  }
+
+  // ---- Blocs globaux (Sauts, Course, Globaux MI/MS, Combat)
+  const globalWrap = $('#global-blocks');
+
+  function refreshGlobalsVisibility(){
+    const selectedZones = $$('#zones input:checked').map(z=>z.value);
+    const hasLower = selectedZones.some(z => lowerBody.includes(z));
+    const hasHead = selectedZones.includes(headNeck);
+    const anyRetour = $$('#zoneContainer .moment .retour:checked').length>0;
+
+    // Sauts (si MI cochée) + question Oui/Non
+    ensureJumpBlock(hasLower);
+
+    // Course (si MI cochée OU tête/rachis cochée) + Oui/Non
+    ensureCourseBlock(hasLower || hasHead);
+
+    // Fonctionnels MI (si MI) + Oui/Non
+    ensureFuncMIBlock(hasLower);
+
+    // Fonctionnels MS (si MS cochée) + Oui/Non
+    const hasUpper = selectedZones.some(z=> ['Épaule','Coude','Poignet / Main'].includes(z));
+    ensureFuncMSBlock(hasUpper);
+
+    // Combat (si "Retour au jeu" coché dans au moins une zone) apparaît après Course
+    ensureCombatBlock(anyRetour);
+  }
+
+  function ensureJumpBlock(visible){
+    const id='global-jumps';
+    let el = $('#'+id);
+    if (!visible){
+      if (el){ el.remove(); }
+      return;
+    }
+    if (!el){
+      el = document.createElement('div');
+      el.className='subcard';
+      el.id=id;
+      el.innerHTML = `
+        <h3>Tests de sauts</h3>
+        <div class="checkbox-group">
+          <label><input type="radio" name="jumps-yn" value="Oui"> Oui</label>
+          <label><input type="radio" name="jumps-yn" value="Non"> Non</label>
+        </div>
+        <div class="slide" id="jumps-body">
+          <label>Quels tests de sauts utilisez-vous ?</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="CMJ (Counter Movement Jump)"> CMJ (Counter Movement Jump)</label>
+            <label><input type="checkbox" value="Squat Jump"> Squat Jump</label>
+            <label><input type="checkbox" value="Drop Jump"> Drop Jump</label>
+            <label><input type="checkbox" value="Broad Jump"> Broad Jump</label>
+            <label><input type="checkbox" value="Single Hop"> Single Hop</label>
+            <label><input type="checkbox" value="Triple Hop"> Triple Hop</label>
+            <label><input type="checkbox" value="Side Hop"> Side Hop</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+
+          <label>Paramètres étudiés</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Force max (N)"> Force max (N)</label>
+            <label><input type="checkbox" value="Hauteur (cm)"> Hauteur (cm)</label>
+            <label><input type="checkbox" value="Temps de vol (ms)"> Temps de vol (ms)</label>
+            <label><input type="checkbox" value="Temps de contact (ms)"> Temps de contact (ms)</label>
+            <label><input type="checkbox" value="Pic de puissance (W)"> Pic de puissance (W)</label>
+            <label><input type="checkbox" value="Puissance relative (W/kg)"> Puissance relative (W/kg)</label>
+            <label><input type="checkbox" value="RFD (Rate of Force Development)"> RFD (Rate of Force Development)</label>
+            <label><input type="checkbox" value="RSI (Reactive Strength Index)"> RSI (Reactive Strength Index)</label>
+            <label><input type="checkbox" value="Distance (cm)"> Distance (cm)</label>
+          </div>
+
+          <label>Outils</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Plateforme de force"> Plateforme de force</label>
+            <label><input type="checkbox" value="Centimétrie"> Centimétrie</label>
+            <label><input type="checkbox" value="Sans outil"> Sans outil</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+
+          <label>Critères d’évaluation</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Comparaison droite/gauche"> Comparaison droite/gauche</label>
+            <label><input type="checkbox" value="Valeur de référence individuelle"> Valeur de référence individuelle</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+        </div>
+      `;
+      globalWrap.appendChild(el);
+      attachOtherLogic(el);
+      const radios = el.querySelectorAll('input[name="jumps-yn"]');
+      const body = $('#jumps-body');
+      radios.forEach(r=> r.addEventListener('change', ()=>{
+        if (r.value==='Oui'){ body.classList.add('show'); }
+        else { body.classList.remove('show'); }
+      }));
+    }
+  }
+
+  function ensureCourseBlock(visible){
+    const id='global-course';
+    let el = $('#'+id);
+    if (!visible){
+      if (el){ el.remove(); }
+      return;
+    }
+    if (!el){
+      el = document.createElement('div');
+      el.className='subcard';
+      el.id=id;
+      el.innerHTML = `
+        <h3>Tests de course</h3>
+        <div class="checkbox-group">
+          <label><input type="radio" name="course-yn" value="Oui"> Oui</label>
+          <label><input type="radio" name="course-yn" value="Non"> Non</label>
+        </div>
+        <div class="slide" id="course-body">
+          <label>Quels tests de course utilisez-vous ?</label>
+
+          <h5>Tests énergétiques</h5>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Yoyo IR test 1"> Yoyo IR test 1</label>
+            <label><input type="checkbox" value="Bronco"> Bronco</label>
+            <label><input type="checkbox" value="Broken Bronco"> Broken Bronco</label>
+            <label><input type="checkbox" value="Test VAMEVAL"> Test VAMEVAL</label>
+            <label><input type="checkbox" value="Test de Léger (Luc Léger)"> Test de Léger (Luc Léger)</label>
+            <label><input type="checkbox" value="Autre (énergétique)"> Autre (énergétique)</label>
+          </div>
+
+          <h5>Tests de vitesse</h5>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Sprint 10m"> Sprint 10m</label>
+            <label><input type="checkbox" value="Sprint 20m"> Sprint 20m</label>
+            <label><input type="checkbox" value="Sprint 30m"> Sprint 30m</label>
+            <label><input type="checkbox" value="Vmax"> Vmax</label>
+            <label><input type="checkbox" value="Autre (vitesse)"> Autre (vitesse)</label>
+          </div>
+
+          <h5>Tests de changement de direction (COD)</h5>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="505"> 505</label>
+            <label><input type="checkbox" value="T-Test"> T-Test</label>
+            <label><input type="checkbox" value="Illinois"> Illinois</label>
+            <label><input type="checkbox" value="ZigZag test"> ZigZag test</label>
+            <label><input type="checkbox" value="Autre (COD)"> Autre (COD)</label>
+          </div>
+
+          <label>Outils</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Chronomètre"> Chronomètre</label>
+            <label><input type="checkbox" value="Cellules"> Cellules</label>
+            <label><input type="checkbox" value="GPS"> GPS</label>
+            <label><input type="checkbox" value="1080 Sprint"> 1080 Sprint</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+
+          <label>Critères d’évaluation</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Moyenne par poste"> Moyenne par poste</label>
+            <label><input type="checkbox" value="Valeur de référence individuelle"> Valeur de référence individuelle</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+        </div>
+      `;
+      globalWrap.appendChild(el);
+      attachOtherLogic(el);
+      const radios = el.querySelectorAll('input[name="course-yn"]');
+      const body = $('#course-body');
+      radios.forEach(r=> r.addEventListener('change', ()=>{
+        if (r.value==='Oui'){ body.classList.add('show'); }
+        else { body.classList.remove('show'); }
+      }));
+    }
+  }
+
+  function ensureFuncMIBlock(visible){
+    const id='global-func-mi';
+    let el = $('#'+id);
+    if (!visible){ if (el) el.remove(); return; }
+    if (!el){
+      el = document.createElement('div');
+      el.className='subcard';
+      el.id=id;
+      el.innerHTML = `
+        <h3>Tests fonctionnels globaux – Membre inférieur</h3>
+        <div class="checkbox-group">
+          <label><input type="radio" name="funcmi-yn" value="Oui"> Oui</label>
+          <label><input type="radio" name="funcmi-yn" value="Non"> Non</label>
+        </div>
+        <div class="slide" id="funcmi-body">
+          <label>Quels tests réalisez-vous ?</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Squat"> Squat</label>
+            <label><input type="checkbox" value="Montée de banc"> Montée de banc</label>
+            <label><input type="checkbox" value="Soulevé de terre"> Soulevé de terre</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+
+          <label>Outils</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Sans outil"> Sans outil</label>
+            <label><input type="checkbox" value="Encodeur linéaire"> Encodeur linéaire</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+
+          <label>Paramètres étudiés</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Répétition maximale (RM)"> Répétition maximale (RM)</label>
+            <label><input type="checkbox" value="Isométrie"> Isométrie</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+
+          <label>Critères d’évaluation</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Moyenne du groupe"> Moyenne du groupe</label>
+            <label><input type="checkbox" value="Ratio / poids du corps"> Ratio / poids du corps</label>
+            <label><input type="checkbox" value="Ratio droite/gauche"> Ratio droite/gauche</label>
+            <label><input type="checkbox" value="Valeur de référence individuelle"> Valeur de référence individuelle</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+        </div>
+      `;
+      globalWrap.appendChild(el);
+      attachOtherLogic(el);
+      const radios = el.querySelectorAll('input[name="funcmi-yn"]');
+      const body = $('#funcmi-body');
+      radios.forEach(r=> r.addEventListener('change', ()=>{
+        if (r.value==='Oui'){ body.classList.add('show'); }
+        else { body.classList.remove('show'); }
+      }));
+    }
+  }
+
+  function ensureFuncMSBlock(visible){
+    const id='global-func-ms';
+    let el = $('#'+id);
+    if (!visible){ if (el) el.remove(); return; }
+    if (!el){
+      el = document.createElement('div');
+      el.className='subcard';
+      el.id=id;
+      el.innerHTML = `
+        <h3>Tests fonctionnels globaux – Membre supérieur</h3>
+        <div class="checkbox-group">
+          <label><input type="radio" name="funcms-yn" value="Oui"> Oui</label>
+          <label><input type="radio" name="funcms-yn" value="Non"> Non</label>
+        </div>
+        <div class="slide" id="funcms-body">
+          <label>Quels tests réalisez-vous ?</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Développé couché"> Développé couché</label>
+            <label><input type="checkbox" value="Traction"> Traction</label>
+            <label><input type="checkbox" value="Tirage"> Tirage</label>
+            <label><input type="checkbox" value="Force grip"> Force grip</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+
+          <label>Outils</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Sans outil"> Sans outil</label>
+            <label><input type="checkbox" value="Encodeur linéaire"> Encodeur linéaire</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+
+          <label>Paramètres étudiés</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Répétition maximale (RM)"> Répétition maximale (RM)</label>
+            <label><input type="checkbox" value="Isométrie"> Isométrie</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+
+          <label>Critères d’évaluation</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" value="Moyenne du groupe"> Moyenne du groupe</label>
+            <label><input type="checkbox" value="Ratio / poids du corps"> Ratio / poids du corps</label>
+            <label><input type="checkbox" value="Ratio droite/gauche"> Ratio droite/gauche</label>
+            <label><input type="checkbox" value="Valeur de référence individuelle"> Valeur de référence individuelle</label>
+            <label><input type="checkbox" value="Autre"> Autre</label>
+          </div>
+        </div>
+      `;
+      globalWrap.appendChild(el);
+      attachOtherLogic(el);
+      const radios = el.querySelectorAll('input[name="funcms-yn"]');
+      const body = $('#funcms-body');
+      radios.forEach(r=> r.addEventListener('change', ()=>{
+        if (r.value==='Oui'){ body.classList.add('show'); }
+        else { body.classList.remove('show'); }
+      }));
+    }
+  }
+
+  function ensureCombatBlock(visible){
+    const id='global-combat';
+    let el = $('#'+id);
+    if (!visible){ if (el) el.remove(); return; }
+    if (!el){
+      el = document.createElement('div');
+      el.className='subcard';
+      el.id=id;
+      el.innerHTML = `
+        <h3>Tests spécifiques de combat</h3>
+        <div class="checkbox-group">
+          <label><input type="radio" name="combat-yn" value="Oui"> Oui</label>
+          <label><input type="radio" name="combat-yn" value="Non"> Non</label>
+        </div>
+      `;
+      // insérer juste après "course" si présent
+      const course = $('#global-course');
+      if (course) course.insertAdjacentElement('afterend', el);
+      else globalWrap.appendChild(el);
+    }
+  }
+
+  // ---- création/décréation initiales si besoin
+  refreshGlobalsVisibility();
+
+  // ---- VALIDATION + ENVOI Google Form
+  function gatherSection(el){
+    // parcours récursif basique pour convertir en objet
+    const data = {};
+    el.querySelectorAll('input[type="checkbox"],input[type="radio"]').forEach(inp=>{
+      const label = inp.closest('label') ? inp.closest('label').innerText.trim() : inp.value;
+      const group = inp.closest('.checkbox-group');
+      const gkey = group ? (group.previousElementSibling && group.previousElementSibling.tagName.startsWith('LABEL') ? group.previousElementSibling.innerText.trim() : 'groupe') : 'groupe';
+      if (inp.checked){
+        if (!data[gkey]) data[gkey] = [];
+        data[gkey].push(label);
       }
-      out[title] = vals;
     });
-    return out;
+    el.querySelectorAll('input.other-input').forEach(inp=>{
+      const key = inp.placeholder || 'Précisions';
+      if (inp.value.trim()){
+        data[key] = inp.value.trim();
+      }
+    });
+    return data;
   }
 
-  submitBtn?.addEventListener("click", (e) => {
-    e.preventDefault();
-    resultMessage.textContent = "";
-    resultMessage.style.color = "red";
+  function buildPayload(){
+    const payload = {};
+    payload.participant = {
+      nom: $('#nom').value.trim(),
+      prenom: $('#prenom').value.trim(),
+      role: ($$('input[name="role"]:checked')[0]||{}).value || '',
+      role_autre: $('#role-autre-text').value.trim() || '',
+      equipe: ($$('input[name="equipe"]:checked')[0]||{}).value || ''
+    };
+    payload.zones = {};
+    $$('#zoneContainer .subcard').forEach(card=>{
+      const zone = card.querySelector('h3').innerText.trim();
+      payload.zones[zone] = gatherSection(card);
+    });
+    payload.globaux = {};
+    $$('#global-blocks .subcard').forEach(g=>{
+      const title = g.querySelector('h3').innerText.trim();
+      payload.globaux[title] = gatherSection(g);
+    });
+    payload.commun = {
+      barrieres: gatherSection($('#barrieres').closest('.card'))['Quelles sont les limites ou barrières rencontrées ?'] || [],
+      barrieres_autre: $('#barrieres-autre-text').value.trim() || '',
+      choix: gatherSection($('#choix').closest('.card'))['Qu’est-ce qui guide vos choix de tests ?'] || [],
+      choix_autre: $('#choix-autre-text').value.trim() || ''
+    };
+    return payload;
+  }
 
-    // Validation minimale (exhaustivité détaillée côté interface déjà gérée)
-    if (!validateAll()) {
-      resultMessage.textContent = "⚠️ Merci de préciser tous les champs 'Autre' et sections affichées.";
+  function validateRequired(){
+    // basiques
+    if (!$('#nom').value.trim() || !$('#prenom').value.trim()) return false;
+    if (!$$('input[name="role"]:checked').length) return false;
+    if ($('#role-autre').checked && !$('#role-autre-text').value.trim()) return false;
+    if (!$$('input[name="equipe"]:checked').length) return false;
+    if (!$$('#zones input:checked').length) return false;
+
+    // “autre fréquence” -> préciser
+    let ok = true;
+    $$('#zoneContainer .subcard').forEach(card=>{
+      const f = card.querySelector('.freq-autre');
+      if (f && f.checked){
+        const t = card.querySelector('#'+card.id+'-freq-autre input');
+        if (!t || !t.value.trim()) ok = false;
+      }
+      // si un type est coché, s'assurer qu'au moins un élément interne est coché
+      card.querySelectorAll('.types input:checked').forEach(()=>{
+        // vérification générique : présence d'au moins une case cochée dans la zone-sub
+        const has = card.querySelector('.zone-sub input:checked');
+        if (!has) ok = false;
+      });
+    });
+
+    // Autre -> préciser (global + zones)
+    document.querySelectorAll('input[type="checkbox"][value^="Autre"]').forEach(oc=>{
+      if (oc.checked){
+        const group = oc.closest('.checkbox-group');
+        const wrap = group && group.nextElementSibling && group.nextElementSibling.classList.contains('other-wrap') ? group.nextElementSibling : null;
+        const inp = wrap ? wrap.querySelector('input') : null;
+        if (inp && !inp.value.trim()) ok = false;
+      }
+    });
+
+    // Jumps/Course/Func blocks: si Oui → vérifier qu'au moins un choix est coché
+    const gc = $('#global-course');
+    const gj = $('#global-jumps');
+    const gmi = $('#global-func-mi');
+    const gms = $('#global-func-ms');
+    const ynPairs = [
+      [gj, 'jumps-yn', '#jumps-body'],
+      [gc, 'course-yn', '#course-body'],
+      [gmi, 'funcmi-yn', '#funcmi-body'],
+      [gms, 'funcms-yn', '#funcms-body']
+    ];
+    ynPairs.forEach(([el, name, bodySel])=>{
+      if (!el) return;
+      const yes = el.querySelector(`input[name="${name}"][value="Oui"]`);
+      const no = el.querySelector(`input[name="${name}"][value="Non"]`);
+      if (yes && no && !yes.checked && !no.checked) ok = false;
+      if (yes && yes.checked){
+        if (!el.querySelector(bodySel+' input:checked')) ok = false;
+      }
+    });
+
+    return ok;
+    }
+
+  // ENVOI
+  $('#send').addEventListener('click', async ()=>{
+    $('#result').style.color = '#d22';
+    $('#result').textContent = '';
+
+    if (!validateRequired()){
+      $('#result').textContent = '⚠️ Merci de compléter les champs obligatoires et précisions "Autre" avant envoi.';
       return;
     }
 
-    // Sérialiser TOUT dans un seul champ Google Form (entry.* fourni)
-    const payload = new FormData();
-    payload.append(GOOGLE_ENTRY_AGGREGATE, gatherAnswersAsJSON());
+    const payload = buildPayload();
+    const text = JSON.stringify(payload, null, 2);
 
-    fetch(GOOGLE_FORM_URL, { method: "POST", mode: "no-cors", body: payload })
-      .then(() => {
-        resultMessage.style.color = "green";
-        resultMessage.textContent = "✅ Réponses envoyées. Merci !";
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      })
-      .catch(() => {
-        resultMessage.textContent = "⚠️ Erreur lors de l’envoi au Google Form.";
-      });
+    const url = window.GOOGLE_FORM_URL;
+    const entry = window.GOOGLE_ENTRY_ID;
+
+    const formData = new FormData();
+    formData.append(entry, text);
+
+    try {
+      const resp = await fetch(url, { method:'POST', mode:'no-cors', body: formData });
+      // succès supposé en mode no-cors
+      $('#result').style.color = '#0074d9';
+      $('#result').textContent = '✅ Merci, vos réponses ont été enregistrées.';
+      // reset
+      setTimeout(()=>{
+        document.getElementById('form').reset();
+        // nettoyer les blocs dynamiques
+        $('#zoneContainer').innerHTML = '';
+        $('#global-blocks').innerHTML = '';
+        updateProgress();
+        window.scrollTo({top:0,behavior:'smooth'});
+      }, 800);
+    } catch(err){
+      $('#result').textContent = '❌ Erreur réseau lors de l’envoi.';
+      console.error(err);
+    }
   });
 
-  // ====== Ajustements “Participation” (remplacer VII -> 7 + champ Autre requis) ======
-  const struct = document.getElementById("structure");
-  if (struct) {
-    struct.classList.add("team-options");
-    struct.innerHTML = `
-      <label><input type="radio" name="team" value="XV masculin"> XV masculin</label>
-      <label><input type="radio" name="team" value="XV féminin"> XV féminin</label>
-      <label><input type="radio" name="team" value="7 masculin"> 7 masculin</label>
-      <label><input type="radio" name="team" value="7 féminin"> 7 féminin</label>
-      <label><input type="radio" name="team" value="-20"> -20</label>
-      <label><input type="radio" name="team" value="Autre"> Autre</label>
-    `;
-    ensureRadioOtherWithText(struct);
-  }
-
-  // Champs “Autre” dans infos participant & questions communes
-  const roleGroup = document.getElementById("role");
-  if (roleGroup) ensureRadioOtherWithText(roleGroup);
-
-  const commons = document.getElementById("commonQuestions");
-  if (commons) commons.querySelectorAll(".checkbox-group").forEach(g => uniqueOtherIn(g));
-
-  // Init
-  updateProgress();
 });
